@@ -158,6 +158,16 @@ input{font:inherit;color:var(--tx);}
         </div>
       </div>
       <div>
+        <div class="flbl">Incidencias</div>
+        <div class="frow">
+          <button class="ftag on-all" data-f="inc" data-v="all" onclick="setFInc('all')">Todas</button>
+          <button class="ftag" data-f="inc" data-v="con-inc" onclick="setFInc('con-inc')">⚠ Con incidencia</button>
+          <button class="ftag" data-f="inc" data-v="INCIDENCIA CIA" onclick="setFInc('INCIDENCIA CIA')" >🔴 CIA</button>
+          <button class="ftag" data-f="inc" data-v="PROBLEMA WEB" onclick="setFInc('PROBLEMA WEB')">🟣 Web</button>
+          <button class="ftag" data-f="inc" data-v="PROBLEMA CORREO" onclick="setFInc('PROBLEMA CORREO')">🟠 Correo</button>
+        </div>
+      </div>
+      <div>
         <div class="flbl" id="fglbl">Comercial</div>
         <div class="frow" id="fgrow"></div>
       </div>
@@ -185,6 +195,11 @@ input{font:inherit;color:var(--tx);}
       <div class="pr"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.68A2 2 0 012 .83h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 8.72a16 16 0 006.19 6.19l1.45-1.45a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg><span id="pt"></span></div>
       <div class="pr"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><a id="pm" href="#" target="_blank" rel="noopener"></a></div>
       <div class="pr"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span id="phor"></span></div>
+      <div class="ctag" id="pinc" style="display:none;margin-bottom:.4rem;padding:.2rem .6rem;border-radius:var(--rfull);font-size:11px;font-weight:700;align-items:center;gap:.3rem;"></div>
+      <div id="pnotaswrap" style="display:none;margin-bottom:.4rem;">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--txm);margin-bottom:.2rem;">Notas</div>
+        <div id="pnotas" style="font-size:var(--xs);color:var(--tx);background:var(--off);border-radius:var(--rmd);padding:.4rem .5rem;line-height:1.4;"></div>
+      </div>
       <hr class="pdiv">
       <div class="psl">Cambiar estado</div>
       <div class="tr2">
@@ -200,10 +215,12 @@ const RAW=[{"id": 1, "nombre": "ALMENDRALEJO", "direccion": "Avda. Presidente Ro
 const COMERCIALES=["CONCHI", "FERNANDO", "LAUREN", "MANUEL", "OSCAR", "VALENZUELA", "VALLE"];
 const COM_COLORS=["#c0392b", "#2980b9", "#8e44ad", "#16a085", "#d35400", "#27ae60", "#e67e22"];
 const COM_MAP={"CONCHI": "#c0392b", "FERNANDO": "#2980b9", "LAUREN": "#8e44ad", "MANUEL": "#16a085", "OSCAR": "#d35400", "VALENZUELA": "#27ae60", "VALLE": "#e67e22"};
+const INC_MAP={"INCIDENCIA CIA":"#e53935","PROBLEMA WEB":"#8e44ad","PROBLEMA CORREO":"#e67e22"};
+const INC_LABELS={"INCIDENCIA CIA":"🔴 INCIDENCIA CIA","PROBLEMA WEB":"🟣 PROBLEMA WEB","PROBLEMA CORREO":"🟠 PROBLEMA CORREO"};
 const PROVINCIAS=["Alava (Araba)", "Albacete", "Alicante", "Almería", "Asturias", "Badajoz", "Baleares", "Barcelona", "Burgos", "Caceres", "Cantabria", "Castellón", "Ceuta", "Ciudad Real", "Cuenca", "Cáceres", "Cádiz", "Córdoba", "Gerona (Girona)", "Granada", "Guadalajara", "Guipuzcoa (Gipuzkoa)", "Huelva", "Huesca", "Jaen", "La Coruña (A Coruña)", "La Rioja", "Las Palmas", "León", "Lugo", "Lérida (Lleida)", "Madrid", "Melilla", "Murcia", "Málaga", "Navarra", "Orense (Ourense)", "Palencia", "Pontevedra", "Salamanca", "Segovia", "Sevilla", "Sta. Cruz Tenerife", "Tarragona", "Teruel", "Toledo", "Valencia", "Valladolid", "Vizcaya (Bizkaia)", "Zamora", "Zaragoza"];
 const PROV_MAP={"Alava (Araba)": "#b74040", "Albacete": "#b74e40", "Alicante": "#b75c40", "Almería": "#b76a40", "Asturias": "#b77840", "Badajoz": "#b78640", "Baleares": "#b79440", "Barcelona": "#b7a240", "Burgos": "#b7b040", "Caceres": "#b0b740", "Cantabria": "#a2b740", "Castellón": "#94b740", "Ceuta": "#86b740", "Ciudad Real": "#78b740", "Cuenca": "#6ab740", "Cáceres": "#5cb740", "Cádiz": "#4eb740", "Córdoba": "#40b740", "Gerona (Girona)": "#40b74e", "Granada": "#40b75c", "Guadalajara": "#40b76a", "Guipuzcoa (Gipuzkoa)": "#40b778", "Huelva": "#40b786", "Huesca": "#40b794", "Jaen": "#40b7a2", "La Coruña (A Coruña)": "#40b7b0", "La Rioja": "#40b0b7", "Las Palmas": "#40a2b7", "León": "#4094b7", "Lugo": "#4086b7", "Lérida (Lleida)": "#4078b7", "Madrid": "#406ab7", "Melilla": "#405cb7", "Murcia": "#404eb7", "Málaga": "#4040b7", "Navarra": "#4e40b7", "Orense (Ourense)": "#5c40b7", "Palencia": "#6a40b7", "Pontevedra": "#7840b7", "Salamanca": "#8640b7", "Segovia": "#9440b7", "Sevilla": "#a240b7", "Sta. Cruz Tenerife": "#b040b7", "Tarragona": "#b740b0", "Teruel": "#b740a2", "Toledo": "#b74094", "Valencia": "#b74086", "Valladolid": "#b74078", "Vizcaya (Bizkaia)": "#b7406a", "Zamora": "#b7405c", "Zaragoza": "#b7404e"};
 
-let talleres=RAW.map(t=>Object.assign({},t)),mkrs={},selId=null,fE="all",fSub="all",fQ="",vm="comercial";
+let talleres=RAW.map(t=>Object.assign({},t)),mkrs={},selId=null,fE="all",fSub="all",fQ="",fInc="all",vm="comercial";
 
 const map=L.map("map",{zoomControl:true}).setView([40.2,-3.8],6);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:18}).addTo(map);
@@ -213,7 +230,9 @@ function pc(t){return vm==="comercial"?(COM_MAP[t.comercial]||"#888"):(PROV_MAP[
 function mkIcon(t){
   const c=pc(t),v=t.estado==="Vacaciones";
   const inn=v?'<circle cx="12" cy="11" r="5" fill="rgba(255,255,255,.93)"/><text x="12" y="14.5" font-size="5.5" text-anchor="middle" font-family="Arial" font-weight="bold" fill="'+c+'">VAC</text>':'<circle cx="12" cy="11" r="3.5" fill="rgba(255,255,255,.3)"/>';
-  return L.divIcon({html:'<svg width="24" height="30" viewBox="0 0 24 30" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.37 0 0 5.37 0 12c0 8.5 12 18 12 18S24 20.5 24 12C24 5.37 18.63 0 12 0z" fill="'+c+'" stroke="rgba(255,255,255,.4)" stroke-width="1"/>'+inn+'</svg>',className:"",iconSize:[24,30],iconAnchor:[12,30]});
+  const incColor=t.etiqueta&&INC_MAP[t.etiqueta]?INC_MAP[t.etiqueta]:null;
+  const incDot=incColor?'<circle cx="19" cy="4" r="5" fill="'+incColor+'" stroke="white" stroke-width="1.5"/>':'';
+  return L.divIcon({html:'<svg width="24" height="30" viewBox="0 0 24 30" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.37 0 0 5.37 0 12c0 8.5 12 18 12 18S24 20.5 24 12C24 5.37 18.63 0 12 0z" fill="'+c+'" stroke="rgba(255,255,255,.4)" stroke-width="1"/>'+inn+incDot+'</svg>',className:"",iconSize:[24,30],iconAnchor:[12,30]});
 }
 
 function init(){talleres.forEach(t=>{const m=L.marker([t.lat,t.lon],{icon:mkIcon(t)}).addTo(map).on("click",()=>openP(t.id));mkrs[t.id]=m;});}
@@ -224,8 +243,15 @@ function getF(){
     const ms=fSub==="all"||(vm==="comercial"?t.comercial===fSub:t.provincia===fSub);
     const q=fQ.toLowerCase();
     const mq=!q||t.nombre.toLowerCase().includes(q)||t.direccion.toLowerCase().includes(q)||t.comercial.toLowerCase().includes(q)||(t.provincia||"").toLowerCase().includes(q);
-    return me&&ms&&mq;
+    const mi=fInc==="all"||(fInc==="con-inc"&&t.etiqueta&&INC_MAP[t.etiqueta])||(t.etiqueta===fInc);
+    return me&&ms&&mq&&mi;
   });
+}
+
+function setFInc(v){
+  fInc=v;
+  document.querySelectorAll("[data-f='inc']").forEach(b=>b.classList.toggle("on-all",b.dataset.v===v));
+  render();
 }
 
 function renderLeg(){
@@ -290,6 +316,15 @@ function openP(id){
   ct.innerHTML='<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> '+t.comercial+' &nbsp;·&nbsp; '+t.provincia;
   document.getElementById("ba").className="tb"+(t.estado==="Activo"?" ta":"");
   document.getElementById("bv").className="tb"+(t.estado==="Vacaciones"?" tv":"");
+  const incEl=document.getElementById("pinc");
+  if(t.etiqueta&&INC_MAP[t.etiqueta]){
+    incEl.style.display="flex";incEl.style.background=INC_MAP[t.etiqueta]+"22";incEl.style.color=INC_MAP[t.etiqueta];
+    incEl.textContent=INC_LABELS[t.etiqueta];
+  } else { incEl.style.display="none"; }
+  const notasWrap=document.getElementById("pnotaswrap");
+  if(t.notas&&t.notas.trim()){
+    notasWrap.style.display="block";document.getElementById("pnotas").textContent=t.notas;
+  } else { notasWrap.style.display="none"; }
   document.getElementById("panel").classList.add("open");
   document.querySelectorAll(".ti").forEach(el=>el.classList.toggle("sel",parseInt(el.dataset.id)===id));
 }
@@ -365,9 +400,7 @@ document.getElementById("sbt").addEventListener("click",()=>document.getElementB
     if (parsed.length > 0) {
       talleres = parsed;
       console.log('Datos cargados desde Google Sheets: ' + parsed.length + ' talleres');
-    } else {
-      throw new Error('Sheet vacío');
-    }
+    } else { throw new Error('Sheet vacío'); }
   } catch(e) {
     console.warn('Usando datos locales (fallback):', e.message);
     talleres = RAW.map(t => Object.assign({}, t));
