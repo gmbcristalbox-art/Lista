@@ -74,7 +74,7 @@
     .topbar { position: absolute; top: 18px; left: 18px; right: 18px; z-index: 500; display: flex; justify-content: center; pointer-events: none; }
     .topbar-inner { pointer-events: auto; background: color-mix(in srgb, var(--color-surface) 88%, transparent); border: 1px solid rgba(40,37,29,.10); backdrop-filter: blur(12px); border-radius: 999px; padding: .55rem .8rem; box-shadow: var(--shadow-md); display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
     .top-pill { font-size: var(--text-sm); color: var(--color-text-muted); }
-    .detail { position: absolute; right: 18px; bottom: 18px; z-index: 500; width: min(420px, calc(100vw - 36px)); background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid rgba(40,37,29,.12); border-radius: 22px; box-shadow: var(--shadow-lg); backdrop-filter: blur(14px); padding: var(--space-5); display: none; }
+    .detail { position: absolute; right: 18px; top: 84px; bottom: 18px; z-index: 500; width: min(420px, calc(100vw - 36px)); background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid rgba(40,37,29,.12); border-radius: 22px; box-shadow: var(--shadow-lg); backdrop-filter: blur(14px); padding: var(--space-5); display: none; overflow: auto; }
     .detail.open { display: block; }
     .detail h3 { margin: 0; font-size: var(--text-lg); line-height: 1.15; }
     .detail p { margin: .6rem 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
@@ -93,7 +93,7 @@
       .app { grid-template-columns: 1fr; }
       .sidebar { min-height: auto; border-right: 0; border-bottom: 1px solid rgba(40,37,29,.12); }
       .map-wrap, #map { height: 72vh; min-height: 540px; }
-      .detail { left: 18px; right: 18px; width: auto; }
+      .detail { left: 18px; right: 18px; top: auto; bottom: 18px; width: auto; max-height: 48vh; }
     }
   </style>
 </head>
