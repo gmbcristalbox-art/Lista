@@ -83,6 +83,13 @@
     .detail-block { background: var(--color-bg); border: 1px solid rgba(40,37,29,.08); border-radius: var(--radius-lg); padding: .9rem; }
     .detail-label { display: block; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); margin-bottom: .3rem; }
     .detail-close { position: absolute; top: 14px; right: 14px; width: 38px; height: 38px; border-radius: 50%; border: 1px solid rgba(40,37,29,.12); background: var(--color-surface-2); cursor: pointer; color: var(--color-text); }
+    .service-grid { display: grid; gap: .6rem; margin-top: 1rem; }
+    .service-item { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .8rem .9rem; background: var(--color-bg); border: 1px solid rgba(40,37,29,.08); border-radius: var(--radius-lg); }
+    .service-name { font-size: var(--text-sm); font-weight: 600; }
+    .service-status { display: inline-flex; align-items: center; gap: .45rem; font-size: var(--text-sm); font-weight: 700; }
+    .service-status.yes { color: var(--color-success); }
+    .service-status.no { color: #c1121f; }
+    .service-icon { font-size: 1rem; line-height: 1; }
     .leaflet-container { background: #e8ece8; }
     .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--color-surface); color: var(--color-text); }
     .marker-pin { width: 18px; height: 18px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid white; box-shadow: 0 3px 10px rgba(0,0,0,.2); position: relative; }
@@ -186,6 +193,7 @@
         <p id="detailSubtitle">Haz clic en un punto del mapa o en un elemento del listado.</p>
         <div id="detailBadges" class="badge-row"></div>
         <div id="detailGrid" class="detail-grid"></div>
+        <div id="serviceGrid" class="service-grid"></div>
       </section>
     </main>
   </div>
@@ -193,6 +201,15 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
     const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1507214264';
+    const SERVICES_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1319547953';
+    const SERVICE_FIELDS = [
+      { key: 'unidad movil', label: 'Unidad móvil' },
+      { key: 'camion', label: 'Camión' },
+      { key: 'laminado', label: 'Laminado' },
+      { key: 'techos', label: 'Techos' },
+      { key: 'pulido de faros', label: 'Pulido de faros' },
+      { key: 'matricula', label: 'Matrícula' }
+    ];
     const commercialColors = {
       'CONCHI': '#8b1e3f', 'FERNANDO': '#005f73', 'LAUREN': '#7b2cbf',
       'MANUEL': '#2b9348', 'OSCAR': '#ca6702', 'VALENZUELA': '#1d4ed8', 'VALLE': '#6b705c'
@@ -203,7 +220,7 @@
     };
 
     const appState = {
-      raw: [], filtered: [], markers: [],
+      raw: [], filtered: [], servicesById: {},
       activeCommercial: 'Todos', activeIncident: 'Todas',
       activeState: 'Todos', activeTag: 'Todas', search: ''
     };
@@ -233,6 +250,7 @@
       detailSubtitle: document.getElementById('detailSubtitle'),
       detailBadges: document.getElementById('detailBadges'),
       detailGrid: document.getElementById('detailGrid'),
+      serviceGrid: document.getElementById('serviceGrid'),
       closeDetail: document.getElementById('closeDetail')
     };
 
@@ -277,20 +295,26 @@
       return raw.split(',').map(t => t.trim()).filter(Boolean);
     }
 
+    function normalizeText(value) {
+      return String(value || '').trim().toUpperCase();
+    }
+
     function normalizeRecord(r) {
       return {
-        id: r.id, nombre: r.nombre || '', direccion: r.direccion || '',
-        comercial: (r.comercial || 'Sin comercial').trim(),
-        provincia: (r.provincia || 'Sin provincia').trim(),
-        estado: (r.estado || 'Sin estado').trim(),
-        lat: Number(String(r.lat).replace(',', '.')),
-        lon: Number(String(r.lon).replace(',', '.')),
-        telefono: r.telefono || '', correo: r.correo || '',
-        horario: r.horario || '', codigo: r.codigo || '',
-        etiqueta: (r.etiqueta || '').trim(),
-        notas: (r.notas || '').trim(),
-        tags: parseTags(r.tags || '')
+        id: String(r.id || '').trim(), nombre: r.nombre || '', direccion: r.direccion || '',
+        comercial: (r.comercial || 'Sin comercial').trim(), provincia: (r.provincia || 'Sin provincia').trim(),
+        estado: (r.estado || 'Sin estado').trim(), lat: Number(String(r.lat).replace(',', '.')),
+        lon: Number(String(r.lon).replace(',', '.')), telefono: r.telefono || '', correo: r.correo || '',
+        horario: r.horario || '', codigo: r.codigo || '', etiqueta: (r.etiqueta || '').trim(),
+        notas: (r.notas || '').trim(), tags: parseTags(r.tags || '')
       };
+    }
+
+    function normalizeServicesRow(r) {
+      const id = String(r.id_taller || r.id || '').trim();
+      const services = {};
+      SERVICE_FIELDS.forEach(field => { services[field.key] = normalizeText(r[field.key]); });
+      return { id, services };
     }
 
     function validCoords(item) {
@@ -334,6 +358,25 @@
         <div class="legend-row"><span class="dot" style="background:#006494"></span><div><strong style="font-size:var(--text-sm)">Anotación</strong><div style="font-size:var(--text-xs);color:var(--color-text-muted)">Taller con anotación</div></div></div>`;
     }
 
+    function serviceStatus(value) {
+      return normalizeText(value) === 'SI';
+    }
+
+    function renderServices(item) {
+      const serviceData = appState.servicesById[item.id] || {};
+      els.serviceGrid.innerHTML = SERVICE_FIELDS.map(field => {
+        const yes = serviceStatus(serviceData[field.key]);
+        return `
+          <div class="service-item">
+            <span class="service-name">${field.label}</span>
+            <span class="service-status ${yes ? 'yes' : 'no'}">
+              <span class="service-icon">${yes ? '✅' : '❌'}</span>
+              <span>${yes ? 'Sí' : 'No'}</span>
+            </span>
+          </div>`;
+      }).join('');
+    }
+
     function openDetail(item) {
       els.detailTitle.textContent = item.nombre || 'Taller';
       els.detailSubtitle.textContent = item.direccion || 'Sin dirección';
@@ -342,24 +385,18 @@
         `<span class="badge ${item.estado === 'Activo' ? 'ok' : ''}">${item.estado || 'Sin estado'}</span>`
       ];
       if (item.etiqueta) badges.push(`<span class="badge inc">${item.etiqueta}</span>`);
-      if (item.tags && item.tags.length) {
-        item.tags.forEach(tag => badges.push(`<span class="badge tag">${tag}</span>`));
-      }
+      if (item.tags && item.tags.length) item.tags.forEach(tag => badges.push(`<span class="badge tag">${tag}</span>`));
       els.detailBadges.innerHTML = badges.join('');
       const blocks = [
-        ['Código', item.codigo || '—'],
-        ['Provincia', item.provincia || '—'],
-        ['Teléfono', item.telefono || '—'],
-        ['Correo', item.correo || '—'],
-        ['Horario', item.horario || '—'],
-        ['Notas', item.notas || '—'],
-        ['Anotaciones', item.tags && item.tags.length ? item.tags.join(', ') : '—']
+        ['Código', item.codigo || '—'], ['Provincia', item.provincia || '—'], ['Teléfono', item.telefono || '—'],
+        ['Correo', item.correo || '—'], ['Horario', item.horario || '—'], ['Notas', item.notas || '—']
       ];
       els.detailGrid.innerHTML = blocks.map(([label, value]) => `
         <div class="detail-block">
           <span class="detail-label">${label}</span>
           <div>${value}</div>
         </div>`).join('');
+      renderServices(item);
       els.detailPanel.classList.add('open');
     }
 
@@ -450,18 +487,23 @@
 
     async function loadData() {
       try {
-        const response = await fetch(SHEET_CSV_URL, { cache: 'no-store' });
-        if (!response.ok) throw new Error('No se pudo leer el Sheet');
-        const text = await response.text();
-        const data = parseCSV(text).map(normalizeRecord);
+        const [mainResponse, servicesResponse] = await Promise.all([
+          fetch(SHEET_CSV_URL, { cache: 'no-store' }),
+          fetch(SERVICES_CSV_URL, { cache: 'no-store' })
+        ]);
+        if (!mainResponse.ok || !servicesResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
+        const [mainText, servicesText] = await Promise.all([mainResponse.text(), servicesResponse.text()]);
+        const data = parseCSV(mainText).map(normalizeRecord);
+        const servicesRows = parseCSV(servicesText).map(normalizeServicesRow);
         appState.raw = data;
+        appState.servicesById = Object.fromEntries(servicesRows.filter(r => r.id).map(r => [r.id, r.services]));
         renderLegend();
         renderUIFilters();
         applyFilters();
-        els.sheetStatus.textContent = `Sheet conectado · ${data.length} registros`;
+        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres`;
       } catch (error) {
         console.error(error);
-        els.sheetStatus.textContent = 'Error al cargar el Sheet';
+        els.sheetStatus.textContent = 'Error al cargar los Sheets';
         els.resultList.innerHTML = '<div class="empty">No se han podido cargar los datos del Sheet publicado.</div>';
       }
     }
@@ -471,4 +513,5 @@
   </script>
 </body>
 </html>
+
 
