@@ -24,7 +24,6 @@
       --shadow-sm: 0 1px 2px rgba(0,0,0,.06); --shadow-md: 0 8px 24px rgba(0,0,0,.08); --shadow-lg: 0 18px 40px rgba(0,0,0,.12);
       --transition: 180ms cubic-bezier(0.16, 1, 0.3, 1);
       --font-body: 'Inter', system-ui, sans-serif;
-      --font-display: 'Inter', system-ui, sans-serif;
     }
     [data-theme="dark"] {
       --color-bg: #171614; --color-surface: #1c1b19; --color-surface-2: #201f1d; --color-surface-offset: #22211f; --color-border: #393836;
@@ -53,6 +52,7 @@
     .chips { display: flex; flex-wrap: wrap; gap: .55rem; }
     .chip { border: 1px solid rgba(40,37,29,.12); background: var(--color-bg); color: var(--color-text); padding: .55rem .8rem; border-radius: var(--radius-full); font-size: var(--text-sm); cursor: pointer; }
     .chip.active { background: var(--color-primary); color: var(--color-text-inverse); border-color: var(--color-primary); }
+    .chip.tag-active { background: var(--color-blue); color: var(--color-text-inverse); border-color: var(--color-blue); }
     .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; }
     .stat { background: var(--color-bg); border: 1px solid rgba(40,37,29,.1); border-radius: var(--radius-lg); padding: .85rem .9rem; }
     .stat strong { display: block; font-size: var(--text-xl); line-height: 1; margin-bottom: .25rem; }
@@ -61,7 +61,7 @@
     .legend-row, .list-item { display: flex; align-items: flex-start; gap: .7rem; }
     .dot { width: 12px; height: 12px; border-radius: 50%; margin-top: .35rem; flex: 0 0 auto; }
     .list { display: grid; gap: .7rem; max-height: 32vh; overflow: auto; }
-    .list-item { background: var(--color-bg); border: 1px solid rgba(40,37,29,.08); border-radius: var(--radius-lg); padding: .85rem; cursor: pointer; }
+    .list-item { background: var(--color-bg); border: 1px solid rgba(40,37,29,.08); border-radius: var(--radius-lg); padding: .85rem; cursor: pointer; text-align: left; width: 100%; }
     .list-item:hover { border-color: var(--color-primary); transform: translateY(-1px); }
     .list-item strong { display: block; font-size: var(--text-sm); }
     .list-item small { display: block; color: var(--color-text-muted); margin-top: .25rem; }
@@ -69,6 +69,7 @@
     .badge { font-size: var(--text-xs); font-weight: 700; letter-spacing: .03em; padding: .28rem .5rem; border-radius: var(--radius-full); background: var(--color-surface-offset); color: var(--color-text); }
     .badge.inc { background: color-mix(in srgb, var(--color-error) 15%, var(--color-surface)); color: var(--color-error); }
     .badge.ok { background: color-mix(in srgb, var(--color-success) 14%, var(--color-surface)); color: var(--color-success); }
+    .badge.tag { background: color-mix(in srgb, var(--color-blue) 15%, var(--color-surface)); color: var(--color-blue); }
     .map-wrap { position: relative; min-height: 100vh; }
     #map { width: 100%; height: 100vh; }
     .topbar { position: absolute; top: 18px; left: 18px; right: 18px; z-index: 500; display: flex; justify-content: center; pointer-events: none; }
@@ -95,6 +96,9 @@
       .map-wrap, #map { height: 72vh; min-height: 540px; }
       .detail { left: 18px; right: 18px; top: auto; bottom: 18px; width: auto; max-height: 48vh; }
     }
+    @media (max-height: 800px) {
+      .detail { top: 72px; bottom: 12px; }
+    }
   </style>
 </head>
 <body>
@@ -103,7 +107,7 @@
       <div class="brand">
         <div class="logo-wrap">
           <div class="logo" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-label="Mapa España">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5z"></path>
               <path d="M12 4v16"></path>
               <path d="M4 8.5 12 13l8-4.5"></path>
@@ -150,6 +154,11 @@
       </section>
 
       <section class="panel">
+        <h2>Anotaciones</h2>
+        <div id="tagFilters" class="chips"></div>
+      </section>
+
+      <section class="panel">
         <h2>Leyenda</h2>
         <div id="legend" class="legend"></div>
       </section>
@@ -185,45 +194,31 @@
   <script>
     const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1507214264';
     const commercialColors = {
-      'CONCHI': '#8b1e3f',
-      'FERNANDO': '#005f73',
-      'LAUREN': '#7b2cbf',
-      'MANUEL': '#2b9348',
-      'OSCAR': '#ca6702',
-      'VALENZUELA': '#1d4ed8',
-      'VALLE': '#6b705c'
+      'CONCHI': '#8b1e3f', 'FERNANDO': '#005f73', 'LAUREN': '#7b2cbf',
+      'MANUEL': '#2b9348', 'OSCAR': '#ca6702', 'VALENZUELA': '#1d4ed8', 'VALLE': '#6b705c'
     };
     const incidentColors = {
-      'CIA': '#c1121f',
-      'WEB': '#7b2cbf',
-      'CORREO': '#005f73',
-      'INCIDENCIA CIA': '#c1121f',
-      'PROBLEMA WEB': '#7b2cbf',
-      'PROBLEMA CORREO': '#005f73'
+      'CIA': '#c1121f', 'WEB': '#7b2cbf', 'CORREO': '#005f73',
+      'INCIDENCIA CIA': '#c1121f', 'PROBLEMA WEB': '#7b2cbf', 'PROBLEMA CORREO': '#005f73'
     };
 
     const appState = {
-      raw: [],
-      filtered: [],
-      markers: [],
-      activeCommercial: 'Todos',
-      activeIncident: 'Todas',
-      activeState: 'Todos',
-      search: ''
+      raw: [], filtered: [], markers: [],
+      activeCommercial: 'Todos', activeIncident: 'Todas',
+      activeState: 'Todos', activeTag: 'Todas', search: ''
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 18,
-      attribution: '&copy; OpenStreetMap contributors'
+      maxZoom: 18, attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
-
     const markersLayer = L.layerGroup().addTo(map);
 
     const els = {
       commercialFilters: document.getElementById('commercialFilters'),
       incidentFilters: document.getElementById('incidentFilters'),
       stateFilters: document.getElementById('stateFilters'),
+      tagFilters: document.getElementById('tagFilters'),
       legend: document.getElementById('legend'),
       resultList: document.getElementById('resultList'),
       statTotal: document.getElementById('statTotal'),
@@ -250,16 +245,14 @@
     }
     setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-      setTheme(current);
+      setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
     });
 
     function parseCSV(text) {
       const rows = [];
       let row = [], value = '', inQuotes = false;
       for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        const next = text[i + 1];
+        const char = text[i], next = text[i + 1];
         if (char === '"') {
           if (inQuotes && next === '"') { value += '"'; i++; }
           else { inQuotes = !inQuotes; }
@@ -268,9 +261,7 @@
         } else if ((char === '\n' || char === '\r') && !inQuotes) {
           if (char === '\r' && next === '\n') i++;
           row.push(value); rows.push(row); row = []; value = '';
-        } else {
-          value += char;
-        }
+        } else { value += char; }
       }
       if (value.length || row.length) { row.push(value); rows.push(row); }
       const headers = rows.shift().map(h => h.trim());
@@ -281,22 +272,24 @@
       });
     }
 
+    function parseTags(raw) {
+      if (!raw || !raw.trim()) return [];
+      return raw.split(',').map(t => t.trim()).filter(Boolean);
+    }
+
     function normalizeRecord(r) {
       return {
-        id: r.id,
-        nombre: r.nombre || '',
-        direccion: r.direccion || '',
+        id: r.id, nombre: r.nombre || '', direccion: r.direccion || '',
         comercial: (r.comercial || 'Sin comercial').trim(),
         provincia: (r.provincia || 'Sin provincia').trim(),
         estado: (r.estado || 'Sin estado').trim(),
         lat: Number(String(r.lat).replace(',', '.')),
         lon: Number(String(r.lon).replace(',', '.')),
-        telefono: r.telefono || '',
-        correo: r.correo || '',
-        horario: r.horario || '',
-        codigo: r.codigo || '',
+        telefono: r.telefono || '', correo: r.correo || '',
+        horario: r.horario || '', codigo: r.codigo || '',
         etiqueta: (r.etiqueta || '').trim(),
-        notas: (r.notas || '').trim()
+        notas: (r.notas || '').trim(),
+        tags: parseTags(r.tags || '')
       };
     }
 
@@ -307,20 +300,21 @@
     function createMarkerIcon(item) {
       const base = commercialColors[item.comercial] || '#01696f';
       const alertColor = incidentColors[item.etiqueta] || null;
+      const hasTags = item.tags && item.tags.length > 0;
       const html = `
         <div class="marker-wrap">
           <div class="marker-pin" style="background:${base}"></div>
-          ${alertColor ? `<div class="marker-alert" style="background:${alertColor}"></div>` : ''}
+          ${alertColor ? `<div class="marker-alert" style="background:${alertColor}"></div>` : hasTags ? `<div class="marker-alert" style="background:#006494"></div>` : ''}
         </div>`;
       return L.divIcon({ html, className: '', iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -18] });
     }
 
-    function renderChips(container, items, active, onClick) {
+    function renderChips(container, items, active, onClick, activeClass = 'active') {
       container.innerHTML = '';
       items.forEach(item => {
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = 'chip' + (item === active ? ' active' : '');
+        button.className = 'chip' + (item === active ? ' ' + activeClass : '');
         button.textContent = item;
         button.addEventListener('click', () => onClick(item));
         container.appendChild(button);
@@ -334,18 +328,10 @@
           <span class="dot" style="background:${commercialColors[key] || '#01696f'}"></span>
           <div><strong style="font-size:var(--text-sm)">${key}</strong><div style="font-size:var(--text-xs);color:var(--color-text-muted)">Color base del comercial</div></div>
         </div>`).join('') + `
-        <div class="legend-row">
-          <span class="dot" style="background:${incidentColors['CIA']}"></span>
-          <div><strong style="font-size:var(--text-sm)">CIA</strong><div style="font-size:var(--text-xs);color:var(--color-text-muted)">Incidencia destacada</div></div>
-        </div>
-        <div class="legend-row">
-          <span class="dot" style="background:${incidentColors['WEB']}"></span>
-          <div><strong style="font-size:var(--text-sm)">WEB</strong><div style="font-size:var(--text-xs);color:var(--color-text-muted)">Problema web</div></div>
-        </div>
-        <div class="legend-row">
-          <span class="dot" style="background:${incidentColors['CORREO']}"></span>
-          <div><strong style="font-size:var(--text-sm)">CORREO</strong><div style="font-size:var(--text-xs);color:var(--color-text-muted)">Problema correo</div></div>
-        </div>`;
+        <div class="legend-row"><span class="dot" style="background:#c1121f"></span><div><strong style="font-size:var(--text-sm)">CIA</strong><div style="font-size:var(--text-xs);color:var(--color-text-muted)">Incidencia CIA</div></div></div>
+        <div class="legend-row"><span class="dot" style="background:#7b2cbf"></span><div><strong style="font-size:var(--text-sm)">WEB</strong><div style="font-size:var(--text-xs);color:var(--color-text-muted)">Problema web</div></div></div>
+        <div class="legend-row"><span class="dot" style="background:#005f73"></span><div><strong style="font-size:var(--text-sm)">CORREO</strong><div style="font-size:var(--text-xs);color:var(--color-text-muted)">Problema correo</div></div></div>
+        <div class="legend-row"><span class="dot" style="background:#006494"></span><div><strong style="font-size:var(--text-sm)">Anotación</strong><div style="font-size:var(--text-xs);color:var(--color-text-muted)">Taller con anotación</div></div></div>`;
     }
 
     function openDetail(item) {
@@ -356,6 +342,9 @@
         `<span class="badge ${item.estado === 'Activo' ? 'ok' : ''}">${item.estado || 'Sin estado'}</span>`
       ];
       if (item.etiqueta) badges.push(`<span class="badge inc">${item.etiqueta}</span>`);
+      if (item.tags && item.tags.length) {
+        item.tags.forEach(tag => badges.push(`<span class="badge tag">${tag}</span>`));
+      }
       els.detailBadges.innerHTML = badges.join('');
       const blocks = [
         ['Código', item.codigo || '—'],
@@ -363,9 +352,8 @@
         ['Teléfono', item.telefono || '—'],
         ['Correo', item.correo || '—'],
         ['Horario', item.horario || '—'],
-        ['Latitud', Number.isFinite(item.lat) ? item.lat : '—'],
-        ['Longitud', Number.isFinite(item.lon) ? item.lon : '—'],
-        ['Notas', item.notas || '—']
+        ['Notas', item.notas || '—'],
+        ['Anotaciones', item.tags && item.tags.length ? item.tags.join(', ') : '—']
       ];
       els.detailGrid.innerHTML = blocks.map(([label, value]) => `
         <div class="detail-block">
@@ -394,6 +382,7 @@
           <div class="badge-row">
             <span class="badge">${item.codigo || 'Sin código'}</span>
             ${item.etiqueta ? `<span class="badge inc">${item.etiqueta}</span>` : ''}
+            ${item.tags && item.tags.length ? item.tags.map(t => `<span class="badge tag">${t}</span>`).join('') : ''}
           </div>`;
         div.addEventListener('click', () => {
           if (item._marker) {
@@ -420,9 +409,10 @@
         const matchCommercial = appState.activeCommercial === 'Todos' || item.comercial === appState.activeCommercial;
         const matchIncident = appState.activeIncident === 'Todas' || item.etiqueta === appState.activeIncident;
         const matchState = appState.activeState === 'Todos' || item.estado === appState.activeState;
-        const haystack = [item.nombre, item.codigo, item.provincia, item.direccion, item.comercial, item.etiqueta].join(' ').toLowerCase();
+        const matchTag = appState.activeTag === 'Todas' || (item.tags && item.tags.includes(appState.activeTag));
+        const haystack = [item.nombre, item.codigo, item.provincia, item.direccion, item.comercial, item.etiqueta, ...(item.tags || []), item.notas].join(' ').toLowerCase();
         const matchSearch = !q || haystack.includes(q);
-        return matchCommercial && matchIncident && matchState && matchSearch && validCoords(item);
+        return matchCommercial && matchIncident && matchState && matchTag && matchSearch && validCoords(item);
       });
       renderMarkers(appState.filtered);
       updateStats(appState.filtered);
@@ -434,13 +424,28 @@
       const bounds = [];
       items.forEach(item => {
         const marker = L.marker([item.lat, item.lon], { icon: createMarkerIcon(item) });
-        marker.bindPopup(`<strong>${item.nombre}</strong><br>${item.provincia} · ${item.comercial}${item.etiqueta ? `<br><span style="color:${incidentColors[item.etiqueta] || '#c1121f'};font-weight:700">${item.etiqueta}</span>` : ''}`);
+        marker.bindPopup(`<strong>${item.nombre}</strong><br>${item.provincia} · ${item.comercial}${item.etiqueta ? `<br><span style="color:${incidentColors[item.etiqueta] || '#c1121f'};font-weight:700">${item.etiqueta}</span>` : ''}${item.tags && item.tags.length ? `<br><span style="color:#006494;font-size:.85em">${item.tags.join(', ')}</span>` : ''}`);
         marker.on('click', () => openDetail(item));
         marker.addTo(markersLayer);
         item._marker = marker;
         bounds.push([item.lat, item.lon]);
       });
       if (bounds.length) map.fitBounds(bounds, { padding: [36, 36], maxZoom: 9 });
+    }
+
+    function getAllTags(data) {
+      return ['Todas', ...new Set(data.flatMap(r => r.tags || []))];
+    }
+
+    function renderUIFilters() {
+      const commercials = ['Todos', ...new Set(appState.raw.map(r => r.comercial).filter(Boolean))];
+      const incidents = ['Todas', ...new Set(appState.raw.map(r => r.etiqueta).filter(Boolean))];
+      const states = ['Todos', ...new Set(appState.raw.map(r => r.estado).filter(Boolean))];
+      const tags = getAllTags(appState.raw);
+      renderChips(els.commercialFilters, commercials, appState.activeCommercial, v => { appState.activeCommercial = v; applyFilters(); renderUIFilters(); });
+      renderChips(els.incidentFilters, incidents, appState.activeIncident, v => { appState.activeIncident = v; applyFilters(); renderUIFilters(); });
+      renderChips(els.stateFilters, states, appState.activeState, v => { appState.activeState = v; applyFilters(); renderUIFilters(); });
+      renderChips(els.tagFilters, tags, appState.activeTag, v => { appState.activeTag = v; applyFilters(); renderUIFilters(); }, 'tag-active');
     }
 
     async function loadData() {
@@ -450,13 +455,8 @@
         const text = await response.text();
         const data = parseCSV(text).map(normalizeRecord);
         appState.raw = data;
-        const commercials = ['Todos', ...new Set(data.map(r => r.comercial).filter(Boolean))];
-        const incidents = ['Todas', ...new Set(data.map(r => r.etiqueta).filter(Boolean))];
-        const states = ['Todos', ...new Set(data.map(r => r.estado).filter(Boolean))];
-        renderChips(els.commercialFilters, commercials, appState.activeCommercial, value => { appState.activeCommercial = value; applyFilters(); renderUIFilters(); });
-        renderChips(els.incidentFilters, incidents, appState.activeIncident, value => { appState.activeIncident = value; applyFilters(); renderUIFilters(); });
-        renderChips(els.stateFilters, states, appState.activeState, value => { appState.activeState = value; applyFilters(); renderUIFilters(); });
         renderLegend();
+        renderUIFilters();
         applyFilters();
         els.sheetStatus.textContent = `Sheet conectado · ${data.length} registros`;
       } catch (error) {
@@ -466,18 +466,9 @@
       }
     }
 
-    function renderUIFilters() {
-      renderChips(els.commercialFilters, ['Todos', ...new Set(appState.raw.map(r => r.comercial).filter(Boolean))], appState.activeCommercial, value => { appState.activeCommercial = value; applyFilters(); renderUIFilters(); });
-      renderChips(els.incidentFilters, ['Todas', ...new Set(appState.raw.map(r => r.etiqueta).filter(Boolean))], appState.activeIncident, value => { appState.activeIncident = value; applyFilters(); renderUIFilters(); });
-      renderChips(els.stateFilters, ['Todos', ...new Set(appState.raw.map(r => r.estado).filter(Boolean))], appState.activeState, value => { appState.activeState = value; applyFilters(); renderUIFilters(); });
-    }
-
-    els.searchInput.addEventListener('input', (e) => {
-      appState.search = e.target.value;
-      applyFilters();
-    });
-
+    els.searchInput.addEventListener('input', e => { appState.search = e.target.value; applyFilters(); });
     loadData();
   </script>
 </body>
 </html>
+
