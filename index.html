@@ -318,10 +318,10 @@
     }
 
     function normalizeServicesRow(r) {
-      const id = String(r.id_taller || r.id || '').trim();
+      const codigo = String(r.codigo || r.id_taller || r.id || '').trim();
       const services = {};
       SERVICE_FIELDS.forEach(field => { services[field.key] = normalizeText(r[field.key]); });
-      return { id, services };
+      return { codigo, services };
     }
 
     function validCoords(item) {
@@ -329,7 +329,7 @@
     }
 
     function openIncidentsCount(item) {
-      const list = appState.incidentsById[item.id] || [];
+      const list = appState.incidentsById[item.codigo] || [];
       return list.filter(inc => inc.estado.toLowerCase() === 'abierta').length;
     }
 
@@ -378,7 +378,7 @@
     }
 
     function renderServices(item) {
-      const serviceData = appState.servicesById[item.id] || {};
+      const serviceData = appState.servicesById[item.codigo] || {};
       els.serviceGrid.innerHTML = SERVICE_FIELDS.map(field => {
         const yes = serviceStatus(serviceData[field.key]);
         return `
@@ -423,7 +423,7 @@
     }
 
     function renderIncidents(item) {
-      const list = appState.incidentsById[item.id] || [];
+      const list = appState.incidentsById[item.codigo] || [];
       const container = document.createElement('div');
       container.className = 'detail-block';
       container.style.gridColumn = '1 / -1';
@@ -496,7 +496,7 @@
         const matchIncident = appState.activeIncident === 'Todas' || item.etiqueta === appState.activeIncident;
         const matchState = appState.activeState === 'Todos' || item.estado === appState.activeState;
         const matchTag = appState.activeTag === 'Todas' || (item.tags && item.tags.includes(appState.activeTag));
-        const companyIncidents = appState.incidentsById[item.id] || [];
+        const companyIncidents = appState.incidentsById[item.codigo] || [];
         const matchCompany = appState.activeCompany === 'Todas' || companyIncidents.some(inc => inc.compania === appState.activeCompany);
         const haystack = [item.nombre, item.codigo, item.provincia, item.direccion, item.comercial, item.etiqueta, ...(item.tags || []), item.notas].join(' ').toLowerCase();
         const matchSearch = !q || haystack.includes(q);
@@ -542,7 +542,7 @@
 
     function normalizeIncidentRow(r) {
       return {
-        id: String(r.id || '').trim(),
+        codigo: String(r.codigo || r.id || '').trim(),
         taller: (r.taller || '').trim(),
         compania: (r.compania || '').trim(),
         matricula: (r.matricula || '').trim(),
@@ -568,13 +568,13 @@
         const incidentRows = parseCSV(incidentsText).map(normalizeIncidentRow);
 
         appState.raw = data;
-        appState.servicesById = Object.fromEntries(servicesRows.filter(r => r.id).map(r => [r.id, r.services]));
+        appState.servicesById = Object.fromEntries(servicesRows.filter(r => r.codigo).map(r => [r.codigo, r.services]));
 
         appState.incidentsById = {};
         incidentRows.forEach(row => {
-          if (!row.id) return;
-          if (!appState.incidentsById[row.id]) appState.incidentsById[row.id] = [];
-          appState.incidentsById[row.id].push(row);
+          if (!row.codigo) return;
+          if (!appState.incidentsById[row.codigo]) appState.incidentsById[row.codigo] = [];
+          appState.incidentsById[row.codigo].push(row);
         });
         appState.allCompanies = ['Todas', ...new Set(incidentRows.map(r => r.compania).filter(Boolean))];
 
