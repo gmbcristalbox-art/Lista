@@ -166,6 +166,11 @@
       </section>
 
       <section class="panel">
+        <h2>Compañías (incidencias)</h2>
+        <div id="companyFilters" class="chips"></div>
+      </section>
+
+      <section class="panel">
         <h2>Leyenda</h2>
         <div id="legend" class="legend"></div>
       </section>
@@ -202,6 +207,7 @@
   <script>
     const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1507214264';
     const SERVICES_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1319547953';
+    const INCIDENTS_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=TU_GID_AQUI';
     const SERVICE_FIELDS = [
       { key: 'unidad movil', label: 'Unidad móvil' },
       { key: 'camion', label: 'Camión' },
@@ -220,8 +226,8 @@
     };
 
     const appState = {
-      raw: [], filtered: [], servicesById: {},
-      activeCommercial: 'Todos', activeIncident: 'Todas',
+      raw: [], filtered: [], servicesById: {}, incidentsById: {}, allCompanies: ['Todas'],
+      activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
       activeState: 'Todos', activeTag: 'Todas', search: ''
     };
 
@@ -236,6 +242,7 @@
       incidentFilters: document.getElementById('incidentFilters'),
       stateFilters: document.getElementById('stateFilters'),
       tagFilters: document.getElementById('tagFilters'),
+      companyFilters: document.getElementById('companyFilters'),
       legend: document.getElementById('legend'),
       resultList: document.getElementById('resultList'),
       statTotal: document.getElementById('statTotal'),
@@ -321,14 +328,22 @@
       return Number.isFinite(item.lat) && Number.isFinite(item.lon);
     }
 
+    function openIncidentsCount(item) {
+      const list = appState.incidentsById[item.id] || [];
+      return list.filter(inc => inc.estado.toLowerCase() === 'abierta').length;
+    }
+
     function createMarkerIcon(item) {
       const base = commercialColors[item.comercial] || '#01696f';
-      const alertColor = incidentColors[item.etiqueta] || null;
       const hasTags = item.tags && item.tags.length > 0;
+      const openCount = openIncidentsCount(item);
+      const alertHtml = openCount > 0
+        ? `<div class="marker-alert" style="background:#c1121f;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700">${openCount}</div>`
+        : (hasTags ? `<div class="marker-alert" style="background:#006494"></div>` : '');
       const html = `
         <div class="marker-wrap">
           <div class="marker-pin" style="background:${base}"></div>
-          ${alertColor ? `<div class="marker-alert" style="background:${alertColor}"></div>` : hasTags ? `<div class="marker-alert" style="background:#006494"></div>` : ''}
+          ${alertHtml}
         </div>`;
       return L.divIcon({ html, className: '', iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -18] });
     }
@@ -397,7 +412,31 @@
           <div>${value}</div>
         </div>`).join('');
       renderServices(item);
+      renderIncidents(item);
       els.detailPanel.classList.add('open');
+    }
+
+    function renderIncidents(item) {
+      const list = appState.incidentsById[item.id] || [];
+      const container = document.createElement('div');
+      container.className = 'detail-block';
+      container.style.gridColumn = '1 / -1';
+      if (!list.length) {
+        container.innerHTML = `<span class="detail-label">Incidencias</span><div>Sin incidencias registradas</div>`;
+      } else {
+        const rows = list.map(inc => `
+          <div class="service-item">
+            <span class="service-name">${inc.compania || 'Sin compañía'} · ${inc.matricula || 's/matrícula'}</span>
+            <span class="service-status ${inc.estado.toLowerCase() === 'abierta' ? 'no' : 'yes'}">
+              <span>${inc.estado}</span>
+            </span>
+          </div>`).join('');
+        container.innerHTML = `<span class="detail-label">Incidencias (${list.length})</span>${rows}`;
+      }
+      const oldIncidentBlock = els.detailGrid.querySelector('.incidents-block');
+      if (oldIncidentBlock) oldIncidentBlock.remove();
+      container.classList.add('incidents-block');
+      els.detailGrid.appendChild(container);
     }
 
     function closeDetail() { els.detailPanel.classList.remove('open'); }
@@ -447,9 +486,11 @@
         const matchIncident = appState.activeIncident === 'Todas' || item.etiqueta === appState.activeIncident;
         const matchState = appState.activeState === 'Todos' || item.estado === appState.activeState;
         const matchTag = appState.activeTag === 'Todas' || (item.tags && item.tags.includes(appState.activeTag));
+        const companyIncidents = appState.incidentsById[item.id] || [];
+        const matchCompany = appState.activeCompany === 'Todas' || companyIncidents.some(inc => inc.compania === appState.activeCompany);
         const haystack = [item.nombre, item.codigo, item.provincia, item.direccion, item.comercial, item.etiqueta, ...(item.tags || []), item.notas].join(' ').toLowerCase();
         const matchSearch = !q || haystack.includes(q);
-        return matchCommercial && matchIncident && matchState && matchTag && matchSearch && validCoords(item);
+        return matchCommercial && matchIncident && matchState && matchTag && matchCompany && matchSearch && validCoords(item);
       });
       renderMarkers(appState.filtered);
       updateStats(appState.filtered);
@@ -479,24 +520,54 @@
       const incidents = ['Todas', ...new Set(appState.raw.map(r => r.etiqueta).filter(Boolean))];
       const states = ['Todos', ...new Set(appState.raw.map(r => r.estado).filter(Boolean))];
       const tags = getAllTags(appState.raw);
+      const companies = appState.allCompanies && appState.allCompanies.length ? appState.allCompanies : ['Todas'];
       renderChips(els.commercialFilters, commercials, appState.activeCommercial, v => { appState.activeCommercial = v; applyFilters(); renderUIFilters(); });
       renderChips(els.incidentFilters, incidents, appState.activeIncident, v => { appState.activeIncident = v; applyFilters(); renderUIFilters(); });
       renderChips(els.stateFilters, states, appState.activeState, v => { appState.activeState = v; applyFilters(); renderUIFilters(); });
       renderChips(els.tagFilters, tags, appState.activeTag, v => { appState.activeTag = v; applyFilters(); renderUIFilters(); }, 'tag-active');
+      if (els.companyFilters) {
+        renderChips(els.companyFilters, companies, appState.activeCompany, v => { appState.activeCompany = v; applyFilters(); renderUIFilters(); });
+      }
+    }
+
+    function normalizeIncidentRow(r) {
+      return {
+        id: String(r.id || '').trim(),
+        taller: (r.taller || '').trim(),
+        compania: (r.compania || '').trim(),
+        matricula: (r.matricula || '').trim(),
+        fecha: (r.fecha || '').trim(),
+        estado: (r.estado || 'Abierta').trim(),
+        notas: (r.notas || '').trim()
+      };
     }
 
     async function loadData() {
       try {
-        const [mainResponse, servicesResponse] = await Promise.all([
+        const [mainResponse, servicesResponse, incidentsResponse] = await Promise.all([
           fetch(SHEET_CSV_URL, { cache: 'no-store' }),
-          fetch(SERVICES_CSV_URL, { cache: 'no-store' })
+          fetch(SERVICES_CSV_URL, { cache: 'no-store' }),
+          fetch(INCIDENTS_CSV_URL, { cache: 'no-store' })
         ]);
-        if (!mainResponse.ok || !servicesResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
-        const [mainText, servicesText] = await Promise.all([mainResponse.text(), servicesResponse.text()]);
+        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
+        const [mainText, servicesText, incidentsText] = await Promise.all([
+          mainResponse.text(), servicesResponse.text(), incidentsResponse.text()
+        ]);
         const data = parseCSV(mainText).map(normalizeRecord);
         const servicesRows = parseCSV(servicesText).map(normalizeServicesRow);
+        const incidentRows = parseCSV(incidentsText).map(normalizeIncidentRow);
+
         appState.raw = data;
         appState.servicesById = Object.fromEntries(servicesRows.filter(r => r.id).map(r => [r.id, r.services]));
+
+        appState.incidentsById = {};
+        incidentRows.forEach(row => {
+          if (!row.id) return;
+          if (!appState.incidentsById[row.id]) appState.incidentsById[row.id] = [];
+          appState.incidentsById[row.id].push(row);
+        });
+        appState.allCompanies = ['Todas', ...new Set(incidentRows.map(r => r.compania).filter(Boolean))];
+
         renderLegend();
         renderUIFilters();
         applyFilters();
@@ -513,5 +584,3 @@
   </script>
 </body>
 </html>
-
-
