@@ -402,9 +402,15 @@
       if (item.etiqueta) badges.push(`<span class="badge inc">${item.etiqueta}</span>`);
       if (item.tags && item.tags.length) item.tags.forEach(tag => badges.push(`<span class="badge tag">${tag}</span>`));
       els.detailBadges.innerHTML = badges.join('');
+      const telValue = item.telefono
+        ? `<a href="tel:${item.telefono.replace(/[^+\d]/g, '')}" style="color:var(--color-primary);text-decoration:none;font-weight:600">${item.telefono}</a>`
+        : '—';
+      const correoValue = item.correo
+        ? `<a href="mailto:${item.correo}" style="color:var(--color-primary);text-decoration:none;font-weight:600">${item.correo}</a>`
+        : '—';
       const blocks = [
-        ['Código', item.codigo || '—'], ['Provincia', item.provincia || '—'], ['Teléfono', item.telefono || '—'],
-        ['Correo', item.correo || '—'], ['Horario', item.horario || '—'], ['Notas', item.notas || '—']
+        ['Código', item.codigo || '—'], ['Provincia', item.provincia || '—'], ['Teléfono', telValue],
+        ['Correo', correoValue], ['Horario', item.horario || '—'], ['Notas', item.notas || '—']
       ];
       els.detailGrid.innerHTML = blocks.map(([label, value]) => `
         <div class="detail-block">
@@ -588,3 +594,5 @@
   </script>
 </body>
 </html>
+
+
