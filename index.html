@@ -328,9 +328,13 @@
       return Number.isFinite(item.lat) && Number.isFinite(item.lon);
     }
 
+    const CLOSED_STATES = ['completado', 'cerrada', 'cerrado', 'resuelto', 'resuelta'];
+    function isIncidentClosed(inc) {
+      return CLOSED_STATES.includes((inc.estado || '').toLowerCase());
+    }
     function openIncidentsCount(item) {
       const list = appState.incidentsById[item.codigo] || [];
-      return list.filter(inc => inc.estado.toLowerCase() === 'abierta').length;
+      return list.filter(inc => !isIncidentClosed(inc)).length;
     }
 
     function createMarkerIcon(item) {
@@ -434,7 +438,7 @@
           <div class="service-item" style="flex-direction:column;align-items:flex-start;gap:4px">
             <div style="display:flex;justify-content:space-between;width:100%">
               <span class="service-name">${inc.compania || 'Sin compañía'} · ${inc.matricula || 's/matrícula'}</span>
-              <span class="service-status ${inc.estado.toLowerCase() === 'abierta' ? 'no' : 'yes'}">
+              <span class="service-status ${isIncidentClosed(inc) ? 'yes' : 'no'}">
                 <span>${inc.estado}</span>
               </span>
             </div>
