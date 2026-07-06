@@ -425,11 +425,15 @@
         container.innerHTML = `<span class="detail-label">Incidencias</span><div>Sin incidencias registradas</div>`;
       } else {
         const rows = list.map(inc => `
-          <div class="service-item">
-            <span class="service-name">${inc.compania || 'Sin compañía'} · ${inc.matricula || 's/matrícula'}</span>
-            <span class="service-status ${inc.estado.toLowerCase() === 'abierta' ? 'no' : 'yes'}">
-              <span>${inc.estado}</span>
-            </span>
+          <div class="service-item" style="flex-direction:column;align-items:flex-start;gap:4px">
+            <div style="display:flex;justify-content:space-between;width:100%">
+              <span class="service-name">${inc.compania || 'Sin compañía'} · ${inc.matricula || 's/matrícula'}</span>
+              <span class="service-status ${inc.estado.toLowerCase() === 'abierta' ? 'no' : 'yes'}">
+                <span>${inc.estado}</span>
+              </span>
+            </div>
+            ${inc.fecha ? `<span style="font-size:var(--text-xs);color:var(--color-text-muted)">${inc.fecha}</span>` : ''}
+            ${inc.notas ? `<span style="font-size:var(--text-xs);color:var(--color-text)">${inc.notas}</span>` : ''}
           </div>`).join('');
         container.innerHTML = `<span class="detail-label">Incidencias (${list.length})</span>${rows}`;
       }
