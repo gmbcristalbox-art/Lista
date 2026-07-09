@@ -315,7 +315,8 @@
     }
 
     function normalizeText(value) {
-      return String(value || '').trim().toUpperCase();
+      return String(value || '').trim().toUpperCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     }
 
     function normalizeRecord(r) {
@@ -390,7 +391,8 @@
     }
 
     function serviceStatus(value) {
-      return normalizeText(value) === 'SI';
+      const v = normalizeText(value);
+      return v === 'SI' || v === 'S' || v === 'YES' || v === 'TRUE' || v === '1';
     }
 
     function renderServices(item) {
