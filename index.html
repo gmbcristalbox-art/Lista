@@ -443,6 +443,12 @@
     function provinceColor(value, max) {
       if (!value) return '#f1f0ec';
       const ratio = max ? value / max : 0;
+      if (appState.provinceMetric === 'incidents') {
+        return `hsl(0, ${58 + ratio * 28}%, ${96 - ratio * 56}%)`;
+      }
+      if (appState.provinceMetric === 'service') {
+        return `hsl(${211 - ratio * 9}, ${52 + ratio * 23}%, ${94 - ratio * 50}%)`;
+      }
       return `hsl(${186 - ratio * 35}, ${48 + ratio * 22}%, ${92 - ratio * 52}%)`;
     }
     function provinceMetricLabel() {
