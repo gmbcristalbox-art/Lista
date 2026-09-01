@@ -156,6 +156,11 @@
       </section>
 
       <section class="panel">
+        <h2>Servicios</h2>
+        <div id="serviceFilters" class="chips"></div>
+      </section>
+
+      <section class="panel">
         <h2>Estado</h2>
         <div id="stateFilters" class="chips"></div>
       </section>
@@ -239,7 +244,7 @@
     const appState = {
       raw: [], filtered: [], servicesById: {}, incidentsById: {}, allCompanies: ['Todas'],
       activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
-      activeState: 'Todos', activeTag: 'Todas', search: ''
+      activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: ''
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
@@ -251,6 +256,7 @@
     const els = {
       commercialFilters: document.getElementById('commercialFilters'),
       incidentFilters: document.getElementById('incidentFilters'),
+      serviceFilters: document.getElementById('serviceFilters'),
       stateFilters: document.getElementById('stateFilters'),
       tagFilters: document.getElementById('tagFilters'),
       companyFilters: document.getElementById('companyFilters'),
@@ -512,12 +518,15 @@
         const matchCommercial = appState.activeCommercial === 'Todos' || item.comercial === appState.activeCommercial;
         const matchIncident = appState.activeIncident === 'Todas' || item.etiqueta === appState.activeIncident;
         const matchState = appState.activeState === 'Todos' || item.estado === appState.activeState;
+        const selectedService = SERVICE_FIELDS.find(field => field.label === appState.activeService);
+        const serviceData = appState.servicesById[item.codigo] || {};
+        const matchService = appState.activeService === 'Todos' || (selectedService && serviceStatus(serviceData[selectedService.key]));
         const matchTag = appState.activeTag === 'Todas' || (item.tags && item.tags.includes(appState.activeTag));
         const companyIncidents = appState.incidentsById[item.codigo] || [];
         const matchCompany = appState.activeCompany === 'Todas' || companyIncidents.some(inc => inc.compania === appState.activeCompany);
         const haystack = [item.nombre, item.codigo, item.provincia, item.direccion, item.comercial, item.etiqueta, ...(item.tags || []), item.notas].join(' ').toLowerCase();
         const matchSearch = !q || haystack.includes(q);
-        return matchCommercial && matchIncident && matchState && matchTag && matchCompany && matchSearch && validCoords(item);
+        return matchCommercial && matchIncident && matchState && matchService && matchTag && matchCompany && matchSearch && validCoords(item);
       });
       renderMarkers(appState.filtered);
       updateStats(appState.filtered);
@@ -546,11 +555,13 @@
       const commercials = ['Todos', ...new Set(appState.raw.map(r => r.comercial).filter(Boolean))];
       const incidents = ['Todas', ...new Set(appState.raw.map(r => r.etiqueta).filter(Boolean))];
       const states = ['Todos', ...new Set(appState.raw.map(r => r.estado).filter(Boolean))];
+      const services = ['Todos', ...SERVICE_FIELDS.map(field => field.label)];
       const tags = getAllTags(appState.raw);
       const companies = appState.allCompanies && appState.allCompanies.length ? appState.allCompanies : ['Todas'];
       renderChips(els.commercialFilters, commercials, appState.activeCommercial, v => { appState.activeCommercial = v; applyFilters(); renderUIFilters(); });
       renderChips(els.incidentFilters, incidents, appState.activeIncident, v => { appState.activeIncident = v; applyFilters(); renderUIFilters(); });
       renderChips(els.stateFilters, states, appState.activeState, v => { appState.activeState = v; applyFilters(); renderUIFilters(); });
+      renderChips(els.serviceFilters, services, appState.activeService, v => { appState.activeService = v; applyFilters(); renderUIFilters(); });
       renderChips(els.tagFilters, tags, appState.activeTag, v => { appState.activeTag = v; applyFilters(); renderUIFilters(); }, 'tag-active');
       if (els.companyFilters) {
         renderChips(els.companyFilters, companies, appState.activeCompany, v => { appState.activeCompany = v; applyFilters(); renderUIFilters(); });
@@ -611,5 +622,6 @@
   </script>
 </body>
 </html>
+
 
 
