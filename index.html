@@ -55,6 +55,11 @@
     .chip.tag-active { background: var(--color-blue); color: var(--color-text-inverse); border-color: var(--color-blue); }
     .nearby-actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .65rem; }
     .nearby-status { min-height: 1.25rem; margin-top: .65rem; color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; }
+    .analysis-toggle { display: flex; align-items: center; gap: .55rem; font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
+    .analysis-toggle input { width: 1.05rem; height: 1.05rem; accent-color: var(--color-primary); }
+    .analysis-select { width: 100%; margin-top: .7rem; padding: .7rem .75rem; border: 1px solid rgba(40,37,29,.12); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text); }
+    .analysis-select:disabled { opacity: .55; cursor: not-allowed; }
+    .analysis-status { min-height: 1.25rem; margin-top: .6rem; color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; }
     .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; }
     .stat { background: var(--color-bg); border: 1px solid rgba(40,37,29,.1); border-radius: var(--radius-lg); padding: .85rem .9rem; }
     .stat strong { display: block; font-size: var(--text-xl); line-height: 1; margin-bottom: .25rem; }
@@ -145,6 +150,17 @@
       </section>
 
       <section class="panel">
+        <h2>Análisis territorial</h2>
+        <label class="analysis-toggle"><input id="provinceLayerToggle" type="checkbox"> Mostrar áreas por provincia</label>
+        <select id="provinceMetric" class="analysis-select" disabled>
+          <option value="workshops">Talleres visibles</option>
+          <option value="incidents">Incidencias abiertas</option>
+          <option value="service">Servicio seleccionado</option>
+        </select>
+        <div id="provinceStatus" class="analysis-status">Capa desactivada.</div>
+      </section>
+
+      <section class="panel">
         <h2>Resumen</h2>
         <div class="stats">
           <div class="stat"><strong id="statTotal">0</strong><span>Talleres visibles</span></div>
@@ -222,6 +238,7 @@
     const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1507214264';
     const SERVICES_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1319547953';
     const INCIDENTS_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=732355701';
+    const PROVINCES_GEOJSON_URL = 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/spain-provinces.geojson';
     const SERVICE_FIELDS = [
       { key: 'unidad movil', label: 'Unidad móvil' },
       { key: 'camion', label: 'Camión' },
@@ -253,7 +270,8 @@
     const appState = {
       raw: [], filtered: [], servicesById: {}, incidentsById: {}, allCompanies: ['Todas'],
       activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
-      activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: '', nearbyOrigin: null
+      activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: '', nearbyOrigin: null,
+      provinceLayerEnabled: false, provinceMetric: 'workshops'
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
@@ -262,6 +280,8 @@
     }).addTo(map);
     const markersLayer = L.layerGroup().addTo(map);
     const originLayer = L.layerGroup().addTo(map);
+    let provinceLayer = null;
+    let provinceGeoJSON = null;
 
     const els = {
       commercialFilters: document.getElementById('commercialFilters'),
@@ -282,6 +302,9 @@
       findNearest: document.getElementById('findNearest'),
       clearNearest: document.getElementById('clearNearest'),
       nearbyStatus: document.getElementById('nearbyStatus'),
+      provinceLayerToggle: document.getElementById('provinceLayerToggle'),
+      provinceMetric: document.getElementById('provinceMetric'),
+      provinceStatus: document.getElementById('provinceStatus'),
       sheetStatus: document.getElementById('sheetStatus'),
       detailPanel: document.getElementById('detailPanel'),
       detailTitle: document.getElementById('detailTitle'),
@@ -391,6 +414,81 @@
         if (!place) { els.nearbyStatus.textContent = 'No hemos encontrado esa ubicación. Prueba con localidad, provincia o un CP.'; return; }
         setNearbyOrigin(Number(place.lat), Number(place.lon), place.display_name); map.setView([Number(place.lat), Number(place.lon)], 10);
       } catch (error) { console.error(error); els.nearbyStatus.textContent = 'No se ha podido localizar la búsqueda. Prueba con coordenadas o inténtalo de nuevo.'; }
+    }
+
+    function provinceKey(value) {
+      return normalizeText(value).replace(/\b(PROVINCIA|PROVINCE|DE|DEL|LA|LAS|LOS)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    function featureProvinceName(feature) {
+      const p = feature.properties || {};
+      return p.name || p.NAME || p.prov_name || p.PROV_NAME || p.provincia || p.PROVINCIA || p.nomprov || p.NOMPROV || '';
+    }
+    function provinceStats() {
+      const stats = {};
+      appState.filtered.forEach(item => {
+        const key = provinceKey(item.provincia);
+        if (!key) return;
+        if (!stats[key]) stats[key] = { workshops: 0, incidents: 0, service: 0 };
+        stats[key].workshops += 1;
+        stats[key].incidents += openIncidentsCount(item);
+        const selected = SERVICE_FIELDS.find(field => field.label === appState.activeService);
+        if (selected && serviceStatus((appState.servicesById[item.codigo] || {})[selected.key])) stats[key].service += 1;
+      });
+      return stats;
+    }
+    function provinceValue(stat) {
+      if (!stat) return 0;
+      return appState.provinceMetric === 'incidents' ? stat.incidents : appState.provinceMetric === 'service' ? stat.service : stat.workshops;
+    }
+    function provinceColor(value, max) {
+      if (!value) return '#f1f0ec';
+      const ratio = max ? value / max : 0;
+      return `hsl(${186 - ratio * 35}, ${48 + ratio * 22}%, ${92 - ratio * 52}%)`;
+    }
+    function provinceMetricLabel() {
+      if (appState.provinceMetric === 'incidents') return 'incidencias abiertas';
+      if (appState.provinceMetric === 'service') return appState.activeService === 'Todos' ? 'talleres con servicio (selecciona uno)' : `talleres con ${appState.activeService}`;
+      return 'talleres visibles';
+    }
+    function updateProvinceLayer() {
+      if (!appState.provinceLayerEnabled || !provinceLayer) return;
+      const stats = provinceStats();
+      const values = Object.values(stats).map(provinceValue);
+      const max = Math.max(0, ...values);
+      provinceLayer.eachLayer(layer => {
+        const name = featureProvinceName(layer.feature);
+        const stat = stats[provinceKey(name)] || { workshops: 0, incidents: 0, service: 0 };
+        const value = provinceValue(stat);
+        layer.setStyle({ fillColor: provinceColor(value, max), fillOpacity: value ? .62 : .18, color: '#4d5b5b', weight: 1, opacity: .7 });
+        layer.bindTooltip(`<strong>${name || 'Provincia'}</strong><br>${stat.workshops} talleres visibles<br>${stat.incidents} incidencias abiertas<br>${appState.provinceMetric === 'service' ? `${stat.service} ${provinceMetricLabel()}` : `${value} ${provinceMetricLabel()}`}`, { sticky: true });
+      });
+      els.provinceStatus.textContent = appState.provinceMetric === 'service' && appState.activeService === 'Todos' ? 'Selecciona un servicio para medir su cobertura.' : `Áreas actualizadas según ${provinceMetricLabel()}. Máximo provincial: ${max}.`;
+    }
+    async function toggleProvinceLayer() {
+      appState.provinceLayerEnabled = els.provinceLayerToggle.checked;
+      els.provinceMetric.disabled = !appState.provinceLayerEnabled;
+      if (!appState.provinceLayerEnabled) {
+        if (provinceLayer) map.removeLayer(provinceLayer);
+        els.provinceStatus.textContent = 'Capa desactivada.';
+        return;
+      }
+      els.provinceStatus.textContent = 'Cargando límites provinciales…';
+      try {
+        if (!provinceGeoJSON) {
+          const response = await fetch(PROVINCES_GEOJSON_URL, { cache: 'force-cache' });
+          if (!response.ok) throw new Error('No se han podido cargar los límites provinciales');
+          provinceGeoJSON = await response.json();
+        }
+        if (!provinceLayer) provinceLayer = L.geoJSON(provinceGeoJSON, { style: { fillOpacity: .18, color: '#4d5b5b', weight: 1 } });
+        provinceLayer.addTo(map);
+        updateProvinceLayer();
+      } catch (error) {
+        console.error(error);
+        appState.provinceLayerEnabled = false;
+        els.provinceLayerToggle.checked = false;
+        els.provinceMetric.disabled = true;
+        els.provinceStatus.textContent = 'No se han podido cargar los límites provinciales.';
+      }
     }
 
     const CLOSED_STATES = ['completado', 'cerrada', 'cerrado', 'resuelto', 'resuelta'];
@@ -580,6 +678,7 @@
       renderMarkers(appState.filtered);
       updateStats(appState.filtered);
       updateList(appState.filtered);
+      updateProvinceLayer();
     }
 
     function renderMarkers(items) {
@@ -670,9 +769,10 @@
     els.findNearest.addEventListener('click', findNearest);
     els.clearNearest.addEventListener('click', clearNearbyOrigin);
     els.nearbyInput.addEventListener('keydown', event => { if (event.key === 'Enter') findNearest(); });
+    els.provinceLayerToggle.addEventListener('change', toggleProvinceLayer);
+    els.provinceMetric.addEventListener('change', event => { appState.provinceMetric = event.target.value; updateProvinceLayer(); });
     loadData();
   </script>
 </body>
 </html>
-
 
