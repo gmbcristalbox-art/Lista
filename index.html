@@ -513,7 +513,7 @@
     }
 
     function applyFilters() {
-      const q = appState.search.trim().toLowerCase();
+      const q = normalizeText(appState.search);
       appState.filtered = appState.raw.filter(item => {
         const matchCommercial = appState.activeCommercial === 'Todos' || item.comercial === appState.activeCommercial;
         const matchIncident = appState.activeIncident === 'Todas' || item.etiqueta === appState.activeIncident;
@@ -524,7 +524,13 @@
         const matchTag = appState.activeTag === 'Todas' || (item.tags && item.tags.includes(appState.activeTag));
         const companyIncidents = appState.incidentsById[item.codigo] || [];
         const matchCompany = appState.activeCompany === 'Todas' || companyIncidents.some(inc => inc.compania === appState.activeCompany);
-        const haystack = [item.nombre, item.codigo, item.provincia, item.direccion, item.comercial, item.etiqueta, ...(item.tags || []), item.notas].join(' ').toLowerCase();
+        const availableServices = SERVICE_FIELDS
+          .filter(field => serviceStatus(serviceData[field.key]))
+          .map(field => field.label);
+        const haystack = normalizeText([
+          item.nombre, item.codigo, item.provincia, item.direccion, item.comercial,
+          item.etiqueta, ...(item.tags || []), item.notas, ...availableServices
+        ].join(' '));
         const matchSearch = !q || haystack.includes(q);
         return matchCommercial && matchIncident && matchState && matchService && matchTag && matchCompany && matchSearch && validCoords(item);
       });
@@ -622,6 +628,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
