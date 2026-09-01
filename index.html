@@ -60,6 +60,7 @@
     .analysis-select { width: 100%; margin-top: .7rem; padding: .7rem .75rem; border: 1px solid rgba(40,37,29,.12); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text); }
     .analysis-select:disabled { opacity: .55; cursor: not-allowed; }
     .analysis-status { min-height: 1.25rem; margin-top: .6rem; color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; }
+    .hail-filter-toggle { margin-top: .65rem; }
     .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; }
     .stat { background: var(--color-bg); border: 1px solid rgba(40,37,29,.1); border-radius: var(--radius-lg); padding: .85rem .9rem; }
     .stat strong { display: block; font-size: var(--text-xl); line-height: 1; margin-bottom: .25rem; }
@@ -147,6 +148,13 @@
         <div class="nearby-actions"><button id="findNearest" class="chip active" type="button">Buscar cercanos</button><button id="clearNearest" class="chip" type="button">Limpiar</button></div>
         <div id="nearbyStatus" class="nearby-status">Introduce una localidad, código postal o coordenadas.</div>
       " />
+      </section>
+
+      <section class="panel">
+        <h2>Granizadas</h2>
+        <label class="analysis-toggle"><input id="hailLayerToggle" type="checkbox"> Mostrar zonas de granizada</label>
+        <label class="analysis-toggle hail-filter-toggle"><input id="hailFilterToggle" type="checkbox"> Solo talleres afectados (activas)</label>
+        <div id="hailStatus" class="analysis-status">Cargando granizadas…</div>
       </section>
 
       <section class="panel">
@@ -238,6 +246,7 @@
     const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1507214264';
     const SERVICES_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1319547953';
     const INCIDENTS_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=732355701';
+    const HAILSTORMS_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=444707203';
     const PROVINCES_GEOJSON_URL = 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/spain-provinces.geojson';
     const SERVICE_FIELDS = [
       { key: 'unidad movil', label: 'Unidad móvil' },
@@ -271,7 +280,7 @@
       raw: [], filtered: [], servicesById: {}, incidentsById: {}, allCompanies: ['Todas'],
       activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
       activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: '', nearbyOrigin: null,
-      provinceLayerEnabled: false, provinceMetric: 'workshops'
+      provinceLayerEnabled: false, provinceMetric: 'workshops', hailstorms: [], hailLayerEnabled: false, onlyHailAffected: false
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
@@ -280,6 +289,7 @@
     }).addTo(map);
     const markersLayer = L.layerGroup().addTo(map);
     const originLayer = L.layerGroup().addTo(map);
+    const hailLayer = L.layerGroup().addTo(map);
     let provinceLayer = null;
     let provinceGeoJSON = null;
 
@@ -302,6 +312,9 @@
       findNearest: document.getElementById('findNearest'),
       clearNearest: document.getElementById('clearNearest'),
       nearbyStatus: document.getElementById('nearbyStatus'),
+      hailLayerToggle: document.getElementById('hailLayerToggle'),
+      hailFilterToggle: document.getElementById('hailFilterToggle'),
+      hailStatus: document.getElementById('hailStatus'),
       provinceLayerToggle: document.getElementById('provinceLayerToggle'),
       provinceMetric: document.getElementById('provinceMetric'),
       provinceStatus: document.getElementById('provinceStatus'),
@@ -497,6 +510,39 @@
       }
     }
 
+    function normalizeHailstormRow(r) {
+      return {
+        id: String(r.id || '').trim(), nombre: String(r.nombre || 'Granizada sin nombre').trim(),
+        estado: normalizeText(r.estado || 'ACTIVA'), inicio: String(r.inicio || '').trim(), fin: String(r.fin || '').trim(),
+        lat: Number(String(r.lat || '').replace(',', '.')), lon: Number(String(r.lon || '').replace(',', '.')),
+        radioKm: Number(String(r.radio_km || '').replace(',', '.')), prioridad: String(r.prioridad || '').trim(),
+        notas: String(r.notas || '').trim(), fuente: String(r.fuente || '').trim()
+      };
+    }
+    function validHailstorm(hail) { return Number.isFinite(hail.lat) && Number.isFinite(hail.lon) && Number.isFinite(hail.radioKm) && hail.radioKm > 0; }
+    function isActiveHailstorm(hail) { return hail.estado === 'ACTIVA'; }
+    function activeHailstormsFor(item) {
+      return appState.hailstorms.filter(hail => isActiveHailstorm(hail) && validHailstorm(hail) && distanceKm(item.lat, item.lon, hail.lat, hail.lon) <= hail.radioKm);
+    }
+    function renderHailstorms() {
+      hailLayer.clearLayers();
+      if (!appState.hailLayerEnabled) return;
+      appState.hailstorms.filter(validHailstorm).forEach(hail => {
+        const active = isActiveHailstorm(hail);
+        const color = active ? '#003b73' : '#f3dc72';
+        const fillColor = active ? '#0a4f8f' : '#fff1a8';
+        const circle = L.circle([hail.lat, hail.lon], { radius: hail.radioKm * 1000, color, fillColor, weight: active ? 3 : 2, fillOpacity: active ? .24 : .20, opacity: .9 });
+        circle.bindPopup(`<strong>${hail.nombre}</strong><br>Estado: ${active ? 'ACTIVA' : hail.estado || 'CERRADA'}<br>Radio: ${hail.radioKm} km${hail.prioridad ? `<br>Prioridad: ${hail.prioridad}` : ''}${hail.inicio ? `<br>Inicio: ${hail.inicio}` : ''}${hail.notas ? `<br>${hail.notas}` : ''}`);
+        circle.addTo(hailLayer);
+      });
+    }
+    function updateHailStatus() {
+      const active = appState.hailstorms.filter(isActiveHailstorm).length;
+      const closed = appState.hailstorms.filter(hail => !isActiveHailstorm(hail)).length;
+      const affected = appState.raw.filter(item => validCoords(item) && activeHailstormsFor(item).length).length;
+      els.hailStatus.textContent = `${active} activa${active === 1 ? '' : 's'} · ${closed} cerrada${closed === 1 ? '' : 's'} · ${affected} talleres afectados.`;
+    }
+
     const CLOSED_STATES = ['completado', 'cerrada', 'cerrado', 'resuelto', 'resuelta'];
     function isIncidentClosed(inc) {
       return CLOSED_STATES.includes((inc.estado || '').toLowerCase());
@@ -569,11 +615,13 @@
     function openDetail(item) {
       els.detailTitle.textContent = item.nombre || 'Taller';
       els.detailSubtitle.textContent = item.direccion || 'Sin dirección';
+      const activeHails = activeHailstormsFor(item);
       const badges = [
         `<span class="badge">${item.comercial}</span>`,
         `<span class="badge ${item.estado === 'Activo' ? 'ok' : ''}">${item.estado || 'Sin estado'}</span>`
       ];
       if (item.etiqueta) badges.push(`<span class="badge inc">${item.etiqueta}</span>`);
+      if (activeHails.length) badges.push(`<span class="badge" style="background:#d9eaf7;color:#003b73">⚠ Granizada activa (${activeHails.length})</span>`);
       if (item.tags && item.tags.length) item.tags.forEach(tag => badges.push(`<span class="badge tag">${tag}</span>`));
       els.detailBadges.innerHTML = badges.join('');
       const telValue = item.telefono
@@ -583,7 +631,7 @@
         ? `<a href="mailto:${item.correo}" style="color:var(--color-primary);text-decoration:none;font-weight:600">${item.correo}</a>`
         : '—';
       const blocks = [
-        ['Código', item.codigo || '—'], ['Provincia', item.provincia || '—'], ...(Number.isFinite(item.distanceKm) ? [['Distancia', formatDistance(item.distanceKm)]] : []), ['Teléfono', telValue],
+        ['Código', item.codigo || '—'], ['Provincia', item.provincia || '—'], ...(Number.isFinite(item.distanceKm) ? [['Distancia', formatDistance(item.distanceKm)]] : []), ...(activeHails.length ? [['Granizada activa', activeHails.map(hail => `${hail.nombre} (${formatDistance(distanceKm(item.lat, item.lon, hail.lat, hail.lon))} del centro)`).join('<br>')]] : []), ['Teléfono', telValue],
         ['Correo', correoValue], ['Horario', item.horario || '—'], ['Notas', item.notas || '—']
       ];
       els.detailGrid.innerHTML = blocks.map(([label, value]) => `
@@ -673,18 +721,21 @@
         const serviceData = appState.servicesById[item.codigo] || {};
         const matchService = appState.activeService === 'Todos' || (selectedService && serviceStatus(serviceData[selectedService.key]));
         const matchTag = appState.activeTag === 'Todas' || (item.tags && item.tags.includes(appState.activeTag));
+        const matchHail = !appState.onlyHailAffected || activeHailstormsFor(item).length > 0;
         const companyIncidents = appState.incidentsById[item.codigo] || [];
         const matchCompany = appState.activeCompany === 'Todas' || companyIncidents.some(inc => inc.compania === appState.activeCompany);
         const availableServices = SERVICE_FIELDS.filter(field => serviceStatus(serviceData[field.key])).map(field => field.label);
         const haystack = normalizeText([item.nombre, item.codigo, item.provincia, item.direccion, item.comercial, item.etiqueta, ...(item.tags || []), item.notas, ...availableServices].join(' '));
         const matchSearch = !q || haystack.includes(q);
-        return matchCommercial && matchIncident && matchState && matchService && matchTag && matchCompany && matchSearch && validCoords(item);
+        return matchCommercial && matchIncident && matchState && matchService && matchTag && matchCompany && matchSearch && matchHail && validCoords(item);
       });
       if (appState.nearbyOrigin) { appState.filtered.forEach(item => { item.distanceKm = distanceKm(appState.nearbyOrigin.lat, appState.nearbyOrigin.lon, item.lat, item.lon); }); appState.filtered.sort((a, b) => a.distanceKm - b.distanceKm); } else { appState.raw.forEach(item => { delete item.distanceKm; }); }
       renderMarkers(appState.filtered);
       updateStats(appState.filtered);
       updateList(appState.filtered);
       updateProvinceLayer();
+      renderHailstorms();
+      updateHailStatus();
     }
 
     function renderMarkers(items) {
@@ -736,20 +787,23 @@
 
     async function loadData() {
       try {
-        const [mainResponse, servicesResponse, incidentsResponse] = await Promise.all([
+        const [mainResponse, servicesResponse, incidentsResponse, hailResponse] = await Promise.all([
           fetch(SHEET_CSV_URL, { cache: 'no-store' }),
           fetch(SERVICES_CSV_URL, { cache: 'no-store' }),
-          fetch(INCIDENTS_CSV_URL, { cache: 'no-store' })
+          fetch(INCIDENTS_CSV_URL, { cache: 'no-store' }),
+          fetch(HAILSTORMS_CSV_URL, { cache: 'no-store' })
         ]);
-        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
-        const [mainText, servicesText, incidentsText] = await Promise.all([
-          mainResponse.text(), servicesResponse.text(), incidentsResponse.text()
+        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok || !hailResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
+        const [mainText, servicesText, incidentsText, hailText] = await Promise.all([
+          mainResponse.text(), servicesResponse.text(), incidentsResponse.text(), hailResponse.text()
         ]);
         const data = parseCSV(mainText).map(normalizeRecord);
         const servicesRows = parseCSV(servicesText).map(normalizeServicesRow);
         const incidentRows = parseCSV(incidentsText).map(normalizeIncidentRow);
+        const hailRows = parseCSV(hailText).map(normalizeHailstormRow).filter(hail => hail.id || hail.nombre);
 
         appState.raw = data;
+        appState.hailstorms = hailRows;
         appState.servicesById = Object.fromEntries(servicesRows.filter(r => r.codigo).map(r => [r.codigo, r.services]));
 
         appState.incidentsById = {};
@@ -763,7 +817,7 @@
         renderLegend();
         renderUIFilters();
         applyFilters();
-        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres`;
+        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres · ${hailRows.length} granizadas`;
       } catch (error) {
         console.error(error);
         els.sheetStatus.textContent = 'Error al cargar los Sheets';
@@ -775,10 +829,14 @@
     els.findNearest.addEventListener('click', findNearest);
     els.clearNearest.addEventListener('click', clearNearbyOrigin);
     els.nearbyInput.addEventListener('keydown', event => { if (event.key === 'Enter') findNearest(); });
+    els.hailLayerToggle.addEventListener('change', event => { appState.hailLayerEnabled = event.target.checked; renderHailstorms(); });
+    els.hailFilterToggle.addEventListener('change', event => { appState.onlyHailAffected = event.target.checked; applyFilters(); });
     els.provinceLayerToggle.addEventListener('change', toggleProvinceLayer);
     els.provinceMetric.addEventListener('change', event => { appState.provinceMetric = event.target.value; updateProvinceLayer(); });
     loadData();
   </script>
 </body>
+</html>
+
 </html>
 
