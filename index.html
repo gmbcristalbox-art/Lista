@@ -529,8 +529,8 @@
       if (!appState.hailLayerEnabled) return;
       appState.hailstorms.filter(validHailstorm).forEach(hail => {
         const active = isActiveHailstorm(hail);
-        const color = active ? '#003b73' : '#f3dc72';
-        const fillColor = active ? '#0a4f8f' : '#fff1a8';
+        const color = active ? '#003b73' : '#7e3f98';
+        const fillColor = active ? '#0a4f8f' : '#cfa7e8';
         const circle = L.circle([hail.lat, hail.lon], { radius: hail.radioKm * 1000, color, fillColor, weight: active ? 3 : 2, fillOpacity: active ? .24 : .20, opacity: .9 });
         circle.bindPopup(`<strong>${hail.nombre}</strong><br>Estado: ${active ? 'ACTIVA' : hail.estado || 'CERRADA'}<br>Radio: ${hail.radioKm} km${hail.prioridad ? `<br>Prioridad: ${hail.prioridad}` : ''}${hail.inicio ? `<br>Inicio: ${hail.inicio}` : ''}${hail.notas ? `<br>${hail.notas}` : ''}`);
         circle.addTo(hailLayer);
@@ -838,5 +838,4 @@
 </body>
 </html>
 
-</html>
 
