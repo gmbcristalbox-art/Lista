@@ -429,8 +429,22 @@
       } catch (error) { console.error(error); els.nearbyStatus.textContent = 'No se ha podido localizar la búsqueda. Prueba con coordenadas o inténtalo de nuevo.'; }
     }
 
+    const PROVINCE_ALIASES = {
+      'A CORUNA': 'CORUNA', 'LA CORUNA': 'CORUNA', 'CORUNA': 'CORUNA', 'OURENSE': 'ORENSE',
+      'GIRONA': 'GERONA', 'LLEIDA': 'LERIDA', 'BIZKAIA': 'VIZCAYA', 'GIPUZKOA': 'GUIPUZCOA',
+      'ARABA': 'ALAVA', 'ILLES BALEARS': 'BALEARES', 'BALEARS': 'BALEARES',
+      'ALACANT': 'ALICANTE', 'CASTELLO': 'CASTELLON', 'CASTELLO CASTELLON': 'CASTELLON',
+      'VALENCIA VALENCIA': 'VALENCIA', 'NAVARRA NAFARROA': 'NAVARRA',
+      'PRINCIPADO ASTURIAS': 'ASTURIAS'
+    };
+
     function provinceKey(value) {
-      return normalizeText(value).replace(/\b(PROVINCIA|PROVINCE|DE|DEL|LA|LAS|LOS)\b/g, ' ').replace(/\s+/g, ' ').trim();
+      const key = normalizeText(value)
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/\b(PROVINCIA|PROVINCE|DE|DEL|LA|LAS|LOS)\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return PROVINCE_ALIASES[key] || key;
     }
     function featureProvinceName(feature) {
       const p = feature.properties || {};
@@ -837,5 +851,4 @@
   </script>
 </body>
 </html>
-
 
