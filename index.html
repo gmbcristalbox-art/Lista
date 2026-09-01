@@ -53,6 +53,8 @@
     .chip { border: 1px solid rgba(40,37,29,.12); background: var(--color-bg); color: var(--color-text); padding: .55rem .8rem; border-radius: var(--radius-full); font-size: var(--text-sm); cursor: pointer; }
     .chip.active { background: var(--color-primary); color: var(--color-text-inverse); border-color: var(--color-primary); }
     .chip.tag-active { background: var(--color-blue); color: var(--color-text-inverse); border-color: var(--color-blue); }
+    .nearby-actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .65rem; }
+    .nearby-status { min-height: 1.25rem; margin-top: .65rem; color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; }
     .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; }
     .stat { background: var(--color-bg); border: 1px solid rgba(40,37,29,.1); border-radius: var(--radius-lg); padding: .85rem .9rem; }
     .stat strong { display: block; font-size: var(--text-xl); line-height: 1; margin-bottom: .25rem; }
@@ -132,7 +134,14 @@
 
       <section class="panel">
         <h2>Búsqueda</h2>
-        <input id="searchInput" class="search" type="search" placeholder="Buscar taller, código, provincia..." />
+        <input id="searchInput" class="search" type="search" placeholder="Buscar taller, código, provincia o servicio..." />
+      </section>
+      <section class="panel">
+        <h2>Taller más cercano</h2>
+        <input id="nearbyInput" class="search" type="search" placeholder="Localidad, CP o 40.4168, -3.7038" />
+        <div class="nearby-actions"><button id="findNearest" class="chip active" type="button">Buscar cercanos</button><button id="clearNearest" class="chip" type="button">Limpiar</button></div>
+        <div id="nearbyStatus" class="nearby-status">Introduce una localidad, código postal o coordenadas.</div>
+      " />
       </section>
 
       <section class="panel">
@@ -244,7 +253,7 @@
     const appState = {
       raw: [], filtered: [], servicesById: {}, incidentsById: {}, allCompanies: ['Todas'],
       activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
-      activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: ''
+      activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: '', nearbyOrigin: null
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
@@ -252,6 +261,7 @@
       maxZoom: 18, attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
     const markersLayer = L.layerGroup().addTo(map);
+    const originLayer = L.layerGroup().addTo(map);
 
     const els = {
       commercialFilters: document.getElementById('commercialFilters'),
@@ -268,6 +278,10 @@
       statProv: document.getElementById('statProv'),
       visibleCounter: document.getElementById('visibleCounter'),
       searchInput: document.getElementById('searchInput'),
+      nearbyInput: document.getElementById('nearbyInput'),
+      findNearest: document.getElementById('findNearest'),
+      clearNearest: document.getElementById('clearNearest'),
+      nearbyStatus: document.getElementById('nearbyStatus'),
       sheetStatus: document.getElementById('sheetStatus'),
       detailPanel: document.getElementById('detailPanel'),
       detailTitle: document.getElementById('detailTitle'),
@@ -344,6 +358,39 @@
 
     function validCoords(item) {
       return Number.isFinite(item.lat) && Number.isFinite(item.lon);
+    }
+
+    function distanceKm(lat1, lon1, lat2, lon2) {
+      const toRad = value => value * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+    function formatDistance(km) { return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toLocaleString('es-ES', { maximumFractionDigits: 1 })} km`; }
+    function parseCoordinates(value) {
+      const match = String(value || '').trim().match(/^(-?\d+(?:[.,]\d+)?)\s*[,;\s]\s*(-?\d+(?:[.,]\d+)?)$/);
+      if (!match) return null;
+      const lat = Number(match[1].replace(',', '.')), lon = Number(match[2].replace(',', '.'));
+      return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
+    }
+    function setNearbyOrigin(lat, lon, label) {
+      appState.nearbyOrigin = { lat, lon, label }; originLayer.clearLayers();
+      L.circleMarker([lat, lon], { radius: 9, color: '#fff', weight: 3, fillColor: '#c1121f', fillOpacity: 1 }).bindPopup(`<strong>Origen de la búsqueda</strong><br>${label}`).addTo(originLayer);
+      els.nearbyStatus.textContent = `Resultados ordenados por distancia desde: ${label}.`; applyFilters();
+    }
+    function clearNearbyOrigin() { appState.nearbyOrigin = null; originLayer.clearLayers(); els.nearbyInput.value = ''; els.nearbyStatus.textContent = 'Introduce una localidad, código postal o coordenadas.'; applyFilters(); }
+    async function findNearest() {
+      const query = els.nearbyInput.value.trim();
+      if (!query) { els.nearbyStatus.textContent = 'Escribe una localidad, código postal o coordenadas para buscar.'; els.nearbyInput.focus(); return; }
+      const coords = parseCoordinates(query);
+      if (coords) { setNearbyOrigin(coords.lat, coords.lon, `${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)}`); map.setView([coords.lat, coords.lon], 10); return; }
+      const cacheKey = `cristalbox-geocode:${normalizeText(query)}`; let place;
+      try { const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); if (cached && Date.now() - cached.savedAt < 2592000000) place = cached.place; } catch (_) {}
+      try {
+        if (!place) { els.nearbyStatus.textContent = 'Buscando ubicación…'; const params = new URLSearchParams({ q: `${query}, España`, format: 'jsonv2', limit: '1', countrycodes: 'es' }); const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers: { Accept: 'application/json' } }); if (!response.ok) throw new Error('No se pudo localizar la búsqueda'); place = (await response.json())[0]; if (place) try { localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), place })); } catch (_) {} }
+        if (!place) { els.nearbyStatus.textContent = 'No hemos encontrado esa ubicación. Prueba con localidad, provincia o un CP.'; return; }
+        setNearbyOrigin(Number(place.lat), Number(place.lon), place.display_name); map.setView([Number(place.lat), Number(place.lon)], 10);
+      } catch (error) { console.error(error); els.nearbyStatus.textContent = 'No se ha podido localizar la búsqueda. Prueba con coordenadas o inténtalo de nuevo.'; }
     }
 
     const CLOSED_STATES = ['completado', 'cerrada', 'cerrado', 'resuelto', 'resuelta'];
@@ -432,7 +479,7 @@
         ? `<a href="mailto:${item.correo}" style="color:var(--color-primary);text-decoration:none;font-weight:600">${item.correo}</a>`
         : '—';
       const blocks = [
-        ['Código', item.codigo || '—'], ['Provincia', item.provincia || '—'], ['Teléfono', telValue],
+        ['Código', item.codigo || '—'], ['Provincia', item.provincia || '—'], ...(Number.isFinite(item.distanceKm) ? [['Distancia', formatDistance(item.distanceKm)]] : []), ['Teléfono', telValue],
         ['Correo', correoValue], ['Horario', item.horario || '—'], ['Notas', item.notas || '—']
       ];
       els.detailGrid.innerHTML = blocks.map(([label, value]) => `
@@ -487,7 +534,7 @@
         div.className = 'list-item';
         div.innerHTML = `
           <strong>${item.nombre}</strong>
-          <small>${item.provincia} · ${item.comercial}</small>
+          <small>${item.provincia} · ${item.comercial}${Number.isFinite(item.distanceKm) ? ` · ${formatDistance(item.distanceKm)}` : ''}</small>
           <div class="badge-row">
             <span class="badge">${item.codigo || 'Sin código'}</span>
             ${item.etiqueta ? `<span class="badge inc">${item.etiqueta}</span>` : ''}
@@ -524,16 +571,12 @@
         const matchTag = appState.activeTag === 'Todas' || (item.tags && item.tags.includes(appState.activeTag));
         const companyIncidents = appState.incidentsById[item.codigo] || [];
         const matchCompany = appState.activeCompany === 'Todas' || companyIncidents.some(inc => inc.compania === appState.activeCompany);
-        const availableServices = SERVICE_FIELDS
-          .filter(field => serviceStatus(serviceData[field.key]))
-          .map(field => field.label);
-        const haystack = normalizeText([
-          item.nombre, item.codigo, item.provincia, item.direccion, item.comercial,
-          item.etiqueta, ...(item.tags || []), item.notas, ...availableServices
-        ].join(' '));
+        const availableServices = SERVICE_FIELDS.filter(field => serviceStatus(serviceData[field.key])).map(field => field.label);
+        const haystack = normalizeText([item.nombre, item.codigo, item.provincia, item.direccion, item.comercial, item.etiqueta, ...(item.tags || []), item.notas, ...availableServices].join(' '));
         const matchSearch = !q || haystack.includes(q);
         return matchCommercial && matchIncident && matchState && matchService && matchTag && matchCompany && matchSearch && validCoords(item);
       });
+      if (appState.nearbyOrigin) { appState.filtered.forEach(item => { item.distanceKm = distanceKm(appState.nearbyOrigin.lat, appState.nearbyOrigin.lon, item.lat, item.lon); }); appState.filtered.sort((a, b) => a.distanceKm - b.distanceKm); } else { appState.raw.forEach(item => { delete item.distanceKm; }); }
       renderMarkers(appState.filtered);
       updateStats(appState.filtered);
       updateList(appState.filtered);
@@ -624,12 +667,12 @@
     }
 
     els.searchInput.addEventListener('input', e => { appState.search = e.target.value; applyFilters(); });
+    els.findNearest.addEventListener('click', findNearest);
+    els.clearNearest.addEventListener('click', clearNearbyOrigin);
+    els.nearbyInput.addEventListener('keydown', event => { if (event.key === 'Enter') findNearest(); });
     loadData();
   </script>
 </body>
 </html>
-
-
-
 
 
