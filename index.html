@@ -450,10 +450,38 @@
       const p = feature.properties || {};
       return p.name || p.NAME || p.prov_name || p.PROV_NAME || p.provincia || p.PROVINCIA || p.nomprov || p.NOMPROV || '';
     }
+
+    const provinceByWorkshopKey = {};
+    function pointInRing(point, ring) {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i], [xj, yj] = ring[j];
+        const intersects = ((yi > point[1]) !== (yj > point[1])) && (point[0] < (xj - xi) * (point[1] - yi) / (yj - yi) + xi);
+        if (intersects) inside = !inside;
+      }
+      return inside;
+    }
+    function pointInGeometry(point, geometry) {
+      if (!geometry) return false;
+      const insidePolygon = polygon => pointInRing(point, polygon[0]) && !polygon.slice(1).some(ring => pointInRing(point, ring));
+      if (geometry.type === 'Polygon') return insidePolygon(geometry.coordinates);
+      if (geometry.type === 'MultiPolygon') return geometry.coordinates.some(insidePolygon);
+      return false;
+    }
+    function provinceKeyFromCoordinates(item) {
+      if (!provinceGeoJSON || !validCoords(item)) return '';
+      const cacheKey = `${item.codigo}|${item.lat}|${item.lon}`;
+      if (provinceByWorkshopKey[cacheKey] !== undefined) return provinceByWorkshopKey[cacheKey];
+      const point = [item.lon, item.lat];
+      const feature = provinceGeoJSON.features.find(candidate => pointInGeometry(point, candidate.geometry));
+      const key = feature ? provinceKey(featureProvinceName(feature)) : '';
+      provinceByWorkshopKey[cacheKey] = key;
+      return key;
+    }
     function provinceStats() {
       const stats = {};
       appState.filtered.forEach(item => {
-        const key = provinceKey(item.provincia);
+        const key = provinceKeyFromCoordinates(item) || provinceKey(item.provincia);
         if (!key) return;
         if (!stats[key]) stats[key] = { workshops: 0, incidents: 0, service: 0 };
         stats[key].workshops += 1;
@@ -851,4 +879,5 @@
   </script>
 </body>
 </html>
+
 
