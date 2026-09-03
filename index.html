@@ -557,32 +557,51 @@
         id: String(r.id || '').trim(), nombre: String(r.nombre || 'Granizada sin nombre').trim(),
         estado: normalizeText(r.estado || 'ACTIVA'), inicio: String(r.inicio || '').trim(), fin: String(r.fin || '').trim(),
         lat: Number(String(r.lat || '').replace(',', '.')), lon: Number(String(r.lon || '').replace(',', '.')),
-        radioKm: Number(String(r.radio_km || '').replace(',', '.')), prioridad: String(r.prioridad || '').trim(),
+        radioKm: Number(String(r.radio_km || '').replace(',', '.')),
+        radioPrincipalKm: Number(String(r.radio_principal_km || '').replace(',', '.')), prioridad: String(r.prioridad || '').trim(),
         notas: String(r.notas || '').trim(), fuente: String(r.fuente || '').trim()
       };
     }
     function validHailstorm(hail) { return Number.isFinite(hail.lat) && Number.isFinite(hail.lon) && Number.isFinite(hail.radioKm) && hail.radioKm > 0; }
     function isActiveHailstorm(hail) { return hail.estado === 'ACTIVA'; }
+    function hailImpactLevel(item, hail) {
+      if (!validCoords(item) || !validHailstorm(hail)) return '';
+      const distance = distanceKm(item.lat, item.lon, hail.lat, hail.lon);
+      if (distance > hail.radioKm) return '';
+      if (Number.isFinite(hail.radioPrincipalKm) && hail.radioPrincipalKm > 0 && hail.radioPrincipalKm <= hail.radioKm && distance <= hail.radioPrincipalKm) return 'principal';
+      return 'leve';
+    }
     function activeHailstormsFor(item) {
-      return appState.hailstorms.filter(hail => isActiveHailstorm(hail) && validHailstorm(hail) && distanceKm(item.lat, item.lon, hail.lat, hail.lon) <= hail.radioKm);
+      return appState.hailstorms.filter(hail => isActiveHailstorm(hail) && hailImpactLevel(item, hail));
     }
     function renderHailstorms() {
       hailLayer.clearLayers();
       if (!appState.hailLayerEnabled) return;
       appState.hailstorms.filter(validHailstorm).forEach(hail => {
         const active = isActiveHailstorm(hail);
-        const color = active ? '#003b73' : '#7e3f98';
-        const fillColor = active ? '#0a4f8f' : '#cfa7e8';
-        const circle = L.circle([hail.lat, hail.lon], { radius: hail.radioKm * 1000, color, fillColor, weight: active ? 3 : 2, fillOpacity: active ? .24 : .20, opacity: .9 });
-        circle.bindPopup(`<strong>${hail.nombre}</strong><br>Estado: ${active ? 'ACTIVA' : hail.estado || 'CERRADA'}<br>Radio: ${hail.radioKm} km${hail.prioridad ? `<br>Prioridad: ${hail.prioridad}` : ''}${hail.inicio ? `<br>Inicio: ${hail.inicio}` : ''}${hail.notas ? `<br>${hail.notas}` : ''}`);
-        circle.addTo(hailLayer);
+        const outerColor = active ? '#4f9fc9' : '#a96fc5';
+        const outerFill = active ? '#81c8eb' : '#dcbbe9';
+        const coreColor = active ? '#003b73' : '#7e3f98';
+        const coreFill = active ? '#0a4f8f' : '#a868bd';
+        const commonInfo = `<strong>${hail.nombre}</strong><br>Estado: ${active ? 'ACTIVA' : hail.estado || 'CERRADA'}${hail.prioridad ? `<br>Prioridad: ${hail.prioridad}` : ''}${hail.inicio ? `<br>Inicio: ${hail.inicio}` : ''}${hail.notas ? `<br>${hail.notas}` : ''}`;
+        L.circle([hail.lat, hail.lon], { radius: hail.radioKm * 1000, color: outerColor, fillColor: outerFill, weight: active ? 2 : 1.5, fillOpacity: active ? .20 : .18, opacity: .9 })
+          .bindPopup(`${commonInfo}<br><strong>Zona leve / total:</strong> ${hail.radioKm} km`).addTo(hailLayer);
+        if (Number.isFinite(hail.radioPrincipalKm) && hail.radioPrincipalKm > 0 && hail.radioPrincipalKm <= hail.radioKm) {
+          L.circle([hail.lat, hail.lon], { radius: hail.radioPrincipalKm * 1000, color: coreColor, fillColor: coreFill, weight: active ? 3 : 2, fillOpacity: active ? .36 : .30, opacity: 1 })
+            .bindPopup(`${commonInfo}<br><strong>Zona principal:</strong> ${hail.radioPrincipalKm} km`).addTo(hailLayer);
+        }
       });
     }
     function updateHailStatus() {
       const active = appState.hailstorms.filter(isActiveHailstorm).length;
       const closed = appState.hailstorms.filter(hail => !isActiveHailstorm(hail)).length;
-      const affected = appState.raw.filter(item => validCoords(item) && activeHailstormsFor(item).length).length;
-      els.hailStatus.textContent = `${active} activa${active === 1 ? '' : 's'} · ${closed} cerrada${closed === 1 ? '' : 's'} · ${affected} talleres afectados.`;
+      let principal = 0, leve = 0;
+      appState.raw.filter(validCoords).forEach(item => {
+        const levels = appState.hailstorms.filter(isActiveHailstorm).map(hail => hailImpactLevel(item, hail));
+        if (levels.includes('principal')) principal += 1;
+        else if (levels.includes('leve')) leve += 1;
+      });
+      els.hailStatus.textContent = `${active} activa${active === 1 ? '' : 's'} · ${closed} cerrada${closed === 1 ? '' : 's'} · ${principal} en zona principal · ${leve} en zona leve.`;
     }
 
     const CLOSED_STATES = ['completado', 'cerrada', 'cerrado', 'resuelto', 'resuelta'];
@@ -663,7 +682,10 @@
         `<span class="badge ${item.estado === 'Activo' ? 'ok' : ''}">${item.estado || 'Sin estado'}</span>`
       ];
       if (item.etiqueta) badges.push(`<span class="badge inc">${item.etiqueta}</span>`);
-      if (activeHails.length) badges.push(`<span class="badge" style="background:#d9eaf7;color:#003b73">⚠ Granizada activa (${activeHails.length})</span>`);
+      if (activeHails.length) {
+        const mainCount = activeHails.filter(hail => hailImpactLevel(item, hail) === 'principal').length;
+        badges.push(`<span class="badge" style="background:#d9eaf7;color:#003b73">⚠ ${mainCount ? 'Zona principal' : 'Zona leve'} · Granizada activa (${activeHails.length})</span>`);
+      }
       if (item.tags && item.tags.length) item.tags.forEach(tag => badges.push(`<span class="badge tag">${tag}</span>`));
       els.detailBadges.innerHTML = badges.join('');
       const telValue = item.telefono
@@ -673,7 +695,7 @@
         ? `<a href="mailto:${item.correo}" style="color:var(--color-primary);text-decoration:none;font-weight:600">${item.correo}</a>`
         : '—';
       const blocks = [
-        ['Código', item.codigo || '—'], ['Provincia', item.provincia || '—'], ...(Number.isFinite(item.distanceKm) ? [['Distancia', formatDistance(item.distanceKm)]] : []), ...(activeHails.length ? [['Granizada activa', activeHails.map(hail => `${hail.nombre} (${formatDistance(distanceKm(item.lat, item.lon, hail.lat, hail.lon))} del centro)`).join('<br>')]] : []), ['Teléfono', telValue],
+        ['Código', item.codigo || '—'], ['Provincia', item.provincia || '—'], ...(Number.isFinite(item.distanceKm) ? [['Distancia', formatDistance(item.distanceKm)]] : []), ...(activeHails.length ? [['Granizada activa', activeHails.map(hail => `${hailImpactLevel(item, hail) === 'principal' ? '<strong>Zona principal</strong>' : 'Zona leve'} · ${hail.nombre} (${formatDistance(distanceKm(item.lat, item.lon, hail.lat, hail.lon))} del centro)`).join('<br>')]] : []), ['Teléfono', telValue],
         ['Correo', correoValue], ['Horario', item.horario || '—'], ['Notas', item.notas || '—']
       ];
       els.detailGrid.innerHTML = blocks.map(([label, value]) => `
@@ -879,5 +901,6 @@
   </script>
 </body>
 </html>
+
 
 
