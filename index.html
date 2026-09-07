@@ -61,8 +61,6 @@
     .analysis-select:disabled { opacity: .55; cursor: not-allowed; }
     .analysis-status { min-height: 1.25rem; margin-top: .6rem; color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; }
     .hail-filter-toggle { margin-top: .65rem; }
-    .competition-search { margin-top: .7rem; }
-    .competition-search:disabled { opacity: .55; cursor: not-allowed; }
     .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; }
     .stat { background: var(--color-bg); border: 1px solid rgba(40,37,29,.1); border-radius: var(--radius-lg); padding: .85rem .9rem; }
     .stat strong { display: block; font-size: var(--text-xl); line-height: 1; margin-bottom: .25rem; }
@@ -110,10 +108,6 @@
     .marker-wrap { position: relative; width: 18px; height: 18px; }
     .marker-alert { position: absolute; right: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid white; }
     .empty { color: var(--color-text-muted); font-size: var(--text-sm); }
-    .competition-list-panel[hidden] { display: none; }
-    .competition-list-item { border-left: 4px solid #e57200; }
-    .competition-list-item:hover { border-color: #e57200; }
-
     @media (max-width: 980px) {
       html, body { height: auto; overflow: auto; }
       .app { grid-template-columns: 1fr; height: auto; overflow: visible; }
@@ -163,9 +157,7 @@
       <section class="panel">
         <h2>Competencia</h2>
         <label class="analysis-toggle"><input id="competitionToggle" type="checkbox"> Mostrar competencia</label>
-        <input id="competitionSearch" class="search competition-search" type="search" placeholder="Buscar red, centro, localidad..." disabled />
-        <div id="competitionFilters" class="chips"></div>
-        <div id="competitionStatus" class="analysis-status">Cargando competencia…</div>
+        <div id="competitionStatus" class="analysis-status">Competencia sin cargar.</div>
       </section>
 
       <section class="panel">
@@ -232,13 +224,8 @@
       </section>
 
       <section class="panel">
-        <h2>Listado propio</h2>
+        <h2>Listado</h2>
         <div id="resultList" class="list"></div>
-      </section>
-
-      <section id="competitionListPanel" class="panel competition-list-panel" hidden>
-        <h2>Competencia visible</h2>
-        <div id="competitionList" class="list"></div>
       </section>
     </aside>
 
@@ -305,7 +292,7 @@
       activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
       activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: '', nearbyOrigin: null,
       provinceLayerEnabled: false, provinceMetric: 'workshops', hailstorms: [], hailLayerEnabled: false, onlyHailAffected: false,
-      competition: [], competitionEnabled: false, activeCompetition: 'Todas', competitionSearch: ''
+      competition: [], competitionEnabled: false
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
@@ -329,8 +316,6 @@
       companyFilters: document.getElementById('companyFilters'),
       legend: document.getElementById('legend'),
       resultList: document.getElementById('resultList'),
-      competitionListPanel: document.getElementById('competitionListPanel'),
-      competitionList: document.getElementById('competitionList'),
       statTotal: document.getElementById('statTotal'),
       statInc: document.getElementById('statInc'),
       statCom: document.getElementById('statCom'),
@@ -342,8 +327,6 @@
       clearNearest: document.getElementById('clearNearest'),
       nearbyStatus: document.getElementById('nearbyStatus'),
       competitionToggle: document.getElementById('competitionToggle'),
-      competitionSearch: document.getElementById('competitionSearch'),
-      competitionFilters: document.getElementById('competitionFilters'),
       competitionStatus: document.getElementById('competitionStatus'),
       hailLayerToggle: document.getElementById('hailLayerToggle'),
       hailFilterToggle: document.getElementById('hailFilterToggle'),
@@ -585,71 +568,70 @@
       }
     }
 
-    function normalizeCompetitionRow(r) {
-      return {
-        id: String(r.id || '').trim(), red: String(r.red || 'Sin red').trim(), nombre: String(r.nombre || 'Centro sin nombre').trim(),
-        direccion: String(r.direccion || '').trim(), cp: String(r.cp || '').trim(), localidad: String(r.localidad || '').trim(),
-        provincia: String(r.provincia || '').trim(), lat: Number(String(r.lat || '').replace(',', '.')), lon: Number(String(r.lon || '').replace(',', '.')), notas: String(r.notas || '').trim()
-      };
-    }
-    function validCompetition(item) { return Number.isFinite(item.lat) && Number.isFinite(item.lon); }
-    function competitionIcon() {
-      return L.divIcon({ html: '<div class="marker-wrap"><div class="marker-pin" style="background:#e57200"></div></div>', className: '', iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -18] });
-    }
-    function renderCompetitionFilters() {
-      const networks = ['Todas', ...new Set(appState.competition.map(item => item.red).filter(Boolean)).sort()];
-      renderChips(els.competitionFilters, networks, appState.activeCompetition, value => { appState.activeCompetition = value; renderCompetition(); });
-    }
-    function competitionVisibleItems() {
-      const q = normalizeText(appState.competitionSearch);
-      return appState.competition.filter(item => {
-        const networkMatch = appState.activeCompetition === 'Todas' || item.red === appState.activeCompetition;
-        const haystack = normalizeText([item.red, item.nombre, item.direccion, item.cp, item.localidad, item.provincia, item.notas].join(' '));
-        return networkMatch && (!q || haystack.includes(q)) && validCompetition(item);
-      });
-    }
-
-    function updateCompetitionList(items) {
-      const showList = appState.competitionEnabled;
-      els.competitionListPanel.hidden = !showList;
-      if (!showList) return;
-      if (!items.length) {
-        els.competitionList.innerHTML = '<div class="empty">No hay centros de competencia que coincidan con este filtro.</div>';
-        return;
-      }
-      els.competitionList.innerHTML = '';
-      items.slice(0, 120).forEach(item => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'list-item competition-list-item';
-        button.innerHTML = `<strong>${escapeHtml(item.nombre)}</strong><small>${escapeHtml([item.red, item.localidad, item.provincia].filter(Boolean).join(' · '))}</small><div class="badge-row"><span class="badge tag">Competencia</span></div>`;
-        button.addEventListener('click', () => {
-          map.setView([item.lat, item.lon], Math.max(map.getZoom(), 12), { animate: true });
-          if (item.marker) item.marker.openPopup();
-        });
-        els.competitionList.appendChild(button);
-      });
-    }
-
     function escapeHtml(value) {
       return String(value || '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
     }
 
+    function parseCompetitionCoordinate(value, limit) {
+      const raw = String(value ?? '').trim().replace(/\s/g, '');
+      if (!raw) return NaN;
+      let number = Number(raw.replace(',', '.'));
+      if (Number.isFinite(number) && Math.abs(number) <= limit) return number;
+      // Recupera números a los que Sheets haya aplicado separador de miles: 403850 -> 40.3850.
+      const digits = raw.replace(/[^\d-]/g, '');
+      number = Number(digits);
+      if (Number.isFinite(number) && Math.abs(number / 10000) <= limit) return number / 10000;
+      return NaN;
+    }
+
+    function normalizeCompetitionRow(row) {
+      return {
+        id: String(row.id || '').trim(), red: String(row.red || 'Sin red').trim(),
+        nombre: String(row.nombre || 'Centro sin nombre').trim(), direccion: String(row.direccion || '').trim(),
+        cp: String(row.cp || '').trim(), localidad: String(row.localidad || '').trim(),
+        provincia: String(row.provincia || '').trim(), notas: String(row.notas || '').trim(),
+        lat: parseCompetitionCoordinate(row.lat, 90), lon: parseCompetitionCoordinate(row.lon, 180)
+      };
+    }
+
+    function validCompetition(item) {
+      return Number.isFinite(item.lat) && Math.abs(item.lat) <= 90 && Number.isFinite(item.lon) && Math.abs(item.lon) <= 180;
+    }
+
+    function competitionIcon() {
+      return L.divIcon({
+        html: '<div class="marker-wrap"><div class="marker-pin" style="background:#e57200"></div></div>',
+        className: '', iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -18]
+      });
+    }
+
     function renderCompetition() {
       competitionLayer.clearLayers();
-      const visible = competitionVisibleItems();
-      if (appState.competitionEnabled) {
-        visible.forEach(item => {
-          const popup = `<strong>${escapeHtml(item.nombre)}</strong><br><span style="color:#e57200;font-weight:700">${escapeHtml(item.red)}</span>${item.direccion ? `<br>${escapeHtml(item.direccion)}` : ''}${item.cp || item.localidad ? `<br>${escapeHtml([item.cp, item.localidad].filter(Boolean).join(', '))}` : ''}${item.provincia ? `<br>${escapeHtml(item.provincia)}` : ''}${item.notas ? `<br><small>${escapeHtml(item.notas)}</small>` : ''}`;
-          const marker = L.marker([item.lat, item.lon], { icon: competitionIcon() }).bindPopup(popup).addTo(competitionLayer);
-          item.marker = marker;
-        });
+      if (!appState.competitionEnabled) return;
+      appState.competition.filter(validCompetition).forEach(item => {
+        const location = [item.cp, item.localidad].filter(Boolean).join(', ');
+        const popup = `<strong>${escapeHtml(item.nombre)}</strong><br><span style="color:#e57200;font-weight:700">${escapeHtml(item.red)}</span>${item.direccion ? `<br>${escapeHtml(item.direccion)}` : ''}${location ? `<br>${escapeHtml(location)}` : ''}${item.provincia ? `<br>${escapeHtml(item.provincia)}` : ''}${item.notas ? `<br><small>${escapeHtml(item.notas)}</small>` : ''}`;
+        L.marker([item.lat, item.lon], { icon: competitionIcon() }).bindPopup(popup).addTo(competitionLayer);
+      });
+    }
+
+    async function loadCompetition() {
+      try {
+        const response = await fetch(COMPETITION_CSV_URL, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const rows = parseCSV(await response.text()).map(normalizeCompetitionRow);
+        appState.competition = rows;
+        const valid = rows.filter(validCompetition).length;
+        const invalid = rows.length - valid;
+        els.competitionStatus.textContent = valid
+          ? `${valid} centro${valid === 1 ? '' : 's'} disponible${valid === 1 ? '' : 's'}${invalid ? ` · ${invalid} con coordenadas no válidas` : ''}.`
+          : (rows.length ? 'No hay centros con coordenadas válidas.' : 'No hay centros de competencia todavía.');
+        renderCompetition();
+      } catch (error) {
+        console.warn('No se pudo cargar competencia:', error);
+        appState.competition = [];
+        els.competitionStatus.textContent = 'No se ha podido cargar competencia. El mapa propio sigue disponible.';
       }
-      updateCompetitionList(visible);
-      const total = visible.length;
-      els.competitionStatus.textContent = total
-        ? `${total} centro${total === 1 ? '' : 's'} de competencia ${appState.competitionEnabled ? 'visible' : 'disponible'}${total === 1 ? '' : 's'}.`
-        : 'No hay centros de competencia que coincidan con el filtro.';
     }
 
     function normalizeHailstormRow(r) {
@@ -1004,57 +986,43 @@
       };
     }
 
-    async function fetchOptionalText(url) {
-      try {
-        const response = await fetch(url, { cache: 'no-store' });
-        return response.ok ? await response.text() : '';
-      } catch (error) {
-        console.warn('Hoja auxiliar no disponible:', url, error);
-        return '';
-      }
-    }
-
     async function loadData() {
       try {
-        // El listado propio es la única fuente imprescindible: nunca depende de competencia ni de hojas auxiliares.
-        const mainResponse = await fetch(SHEET_CSV_URL, { cache: 'no-store' });
-        if (!mainResponse.ok) throw new Error(`No se pudo leer la hoja principal (${mainResponse.status})`);
-        const mainText = await mainResponse.text();
-        const [servicesText, incidentsText, hailText, competitionText] = await Promise.all([
-          fetchOptionalText(SERVICES_CSV_URL),
-          fetchOptionalText(INCIDENTS_CSV_URL),
-          fetchOptionalText(HAILSTORMS_CSV_URL),
-          fetchOptionalText(COMPETITION_CSV_URL)
+        const [mainResponse, servicesResponse, incidentsResponse, hailResponse] = await Promise.all([
+          fetch(SHEET_CSV_URL, { cache: 'no-store' }),
+          fetch(SERVICES_CSV_URL, { cache: 'no-store' }),
+          fetch(INCIDENTS_CSV_URL, { cache: 'no-store' }),
+          fetch(HAILSTORMS_CSV_URL, { cache: 'no-store' })
         ]);
-
-        const data = parseCSV(mainText).map(normalizeRecord).filter(item => item.id || item.nombre || item.codigo);
-        const servicesRows = servicesText ? parseCSV(servicesText).map(normalizeServicesRow) : [];
-        const incidentRows = incidentsText ? parseCSV(incidentsText).map(normalizeIncidentRow) : [];
-        const hailRows = hailText ? parseCSV(hailText).map(normalizeHailstormRow).filter(hail => hail.id || hail.nombre) : [];
-        const competitionRows = competitionText ? parseCSV(competitionText).map(normalizeCompetitionRow).filter(item => item.id || item.nombre) : [];
+        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok || !hailResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
+        const [mainText, servicesText, incidentsText, hailText] = await Promise.all([
+          mainResponse.text(), servicesResponse.text(), incidentsResponse.text(), hailResponse.text()
+        ]);
+        const data = parseCSV(mainText).map(normalizeRecord);
+        const servicesRows = parseCSV(servicesText).map(normalizeServicesRow);
+        const incidentRows = parseCSV(incidentsText).map(normalizeIncidentRow);
+        const hailRows = parseCSV(hailText).map(normalizeHailstormRow).filter(hail => hail.id || hail.nombre);
 
         appState.raw = data;
         appState.hailstorms = hailRows;
-        appState.competition = competitionRows;
-        appState.servicesById = Object.fromEntries(servicesRows.filter(row => row.codigo).map(row => [row.codigo, row.services]));
+        appState.servicesById = Object.fromEntries(servicesRows.filter(r => r.codigo).map(r => [r.codigo, r.services]));
+
         appState.incidentsById = {};
         incidentRows.forEach(row => {
           if (!row.codigo) return;
-          (appState.incidentsById[row.codigo] ||= []).push(row);
+          if (!appState.incidentsById[row.codigo]) appState.incidentsById[row.codigo] = [];
+          appState.incidentsById[row.codigo].push(row);
         });
-        appState.allCompanies = ['Todas', ...new Set(incidentRows.map(row => row.compania).filter(Boolean))];
+        appState.allCompanies = ['Todas', ...new Set(incidentRows.map(r => r.compania).filter(Boolean))];
 
         renderLegend();
         renderUIFilters();
-        renderCompetitionFilters();
-        applyFilters(); // Siempre dibuja y lista los talleres propios.
-        renderCompetition(); // Capa/listado independientes y opcionales.
-        if (!competitionText) els.competitionStatus.textContent = 'Competencia no disponible. El listado propio se ha cargado normalmente.';
-        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres propios · ${hailRows.length} granizadas${competitionText ? ` · ${competitionRows.length} competencia` : ''}`;
+        applyFilters();
+        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres · ${hailRows.length} granizadas`;
       } catch (error) {
         console.error(error);
-        els.sheetStatus.textContent = 'Error al cargar la hoja principal';
-        els.resultList.innerHTML = '<div class="empty">No se han podido cargar los talleres propios. Comprueba que la hoja principal esté publicada y que su GID sea correcto.</div>';
+        els.sheetStatus.textContent = 'Error al cargar los Sheets';
+        els.resultList.innerHTML = '<div class="empty">No se han podido cargar los datos del Sheet publicado.</div>';
       }
     }
 
@@ -1062,8 +1030,7 @@
     els.findNearest.addEventListener('click', findNearest);
     els.clearNearest.addEventListener('click', clearNearbyOrigin);
     els.nearbyInput.addEventListener('keydown', event => { if (event.key === 'Enter') findNearest(); });
-    els.competitionToggle.addEventListener('change', event => { appState.competitionEnabled = event.target.checked; els.competitionSearch.disabled = !event.target.checked; renderCompetition(); });
-    els.competitionSearch.addEventListener('input', event => { appState.competitionSearch = event.target.value; renderCompetition(); });
+    els.competitionToggle.addEventListener('change', event => { appState.competitionEnabled = event.target.checked; renderCompetition(); });
     els.hailLayerToggle.addEventListener('change', event => { appState.hailLayerEnabled = event.target.checked; renderHailstorms(); });
     els.hailFilterToggle.addEventListener('change', event => { appState.onlyHailAffected = event.target.checked; applyFilters(); });
     els.provinceLayerToggle.addEventListener('change', toggleProvinceLayer);
@@ -1072,6 +1039,7 @@
       requestAnimationFrame(() => map.invalidateSize());
     });
     loadData();
+    loadCompetition();
   </script>
 </body>
 </html>
