@@ -960,22 +960,28 @@
 
     async function loadData() {
       try {
-        const [mainResponse, servicesResponse, incidentsResponse, hailResponse, competitionResponse] = await Promise.all([
+        const competitionRequest = fetch(COMPETITION_CSV_URL, { cache: 'no-store' })
+          .then(response => response.ok ? response.text() : '')
+          .catch(() => '');
+        const [mainResponse, servicesResponse, incidentsResponse, hailResponse, competitionText] = await Promise.all([
           fetch(SHEET_CSV_URL, { cache: 'no-store' }),
           fetch(SERVICES_CSV_URL, { cache: 'no-store' }),
           fetch(INCIDENTS_CSV_URL, { cache: 'no-store' }),
           fetch(HAILSTORMS_CSV_URL, { cache: 'no-store' }),
-          fetch(COMPETITION_CSV_URL, { cache: 'no-store' })
+          competitionRequest
         ]);
-        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok || !hailResponse.ok || !competitionResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
-        const [mainText, servicesText, incidentsText, hailText, competitionText] = await Promise.all([
-          mainResponse.text(), servicesResponse.text(), incidentsResponse.text(), hailResponse.text(), competitionResponse.text()
+        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok || !hailResponse.ok) throw new Error('No se pudo leer alguna hoja principal del Sheet');
+        const [mainText, servicesText, incidentsText, hailText] = await Promise.all([
+          mainResponse.text(), servicesResponse.text(), incidentsResponse.text(), hailResponse.text()
         ]);
         const data = parseCSV(mainText).map(normalizeRecord);
         const servicesRows = parseCSV(servicesText).map(normalizeServicesRow);
         const incidentRows = parseCSV(incidentsText).map(normalizeIncidentRow);
         const hailRows = parseCSV(hailText).map(normalizeHailstormRow).filter(hail => hail.id || hail.nombre);
-        const competitionRows = parseCSV(competitionText).map(normalizeCompetitionRow).filter(item => item.id || item.nombre);
+        const competitionAvailable = Boolean(competitionText.trim());
+        const competitionRows = competitionAvailable
+          ? parseCSV(competitionText).map(normalizeCompetitionRow).filter(item => item.id || item.nombre)
+          : [];
 
         appState.raw = data;
         appState.hailstorms = hailRows;
@@ -995,11 +1001,12 @@
         renderCompetitionFilters();
         renderCompetition();
         applyFilters();
-        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres · ${hailRows.length} granizadas · ${competitionRows.length} competencia`;
+        if (!competitionAvailable) els.competitionStatus.textContent = 'Competencia no disponible todavía. Los talleres propios siguen cargados.';
+        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres · ${hailRows.length} granizadas${competitionAvailable ? ` · ${competitionRows.length} competencia` : ''}`;
       } catch (error) {
         console.error(error);
-        els.sheetStatus.textContent = 'Error al cargar los Sheets';
-        els.resultList.innerHTML = '<div class="empty">No se han podido cargar los datos del Sheet publicado.</div>';
+        els.sheetStatus.textContent = 'Error al cargar los Sheets principales';
+        els.resultList.innerHTML = '<div class="empty">No se han podido cargar los datos principales del Sheet publicado.</div>';
       }
     }
 
