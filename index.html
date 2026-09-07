@@ -157,7 +157,9 @@
       <section class="panel">
         <h2>Competencia</h2>
         <label class="analysis-toggle"><input id="competitionToggle" type="checkbox"> Mostrar competencia</label>
-        <div id="competitionStatus" class="analysis-status">Competencia sin cargar.</div>
+        <input id="competitionSearch" class="search competition-search" type="search" placeholder="Buscar red, centro o localidad…" disabled>
+        <div id="competitionFilters" class="chips"></div>
+        <div id="competitionStatus" class="analysis-status">Cargando competencia…</div>
       </section>
 
       <section class="panel">
@@ -292,7 +294,7 @@
       activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
       activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: '', nearbyOrigin: null,
       provinceLayerEnabled: false, provinceMetric: 'workshops', hailstorms: [], hailLayerEnabled: false, onlyHailAffected: false,
-      competition: [], competitionEnabled: false
+      competition: [], competitionEnabled: false, activeCompetition: 'Todas', competitionSearch: ''
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
@@ -327,6 +329,8 @@
       clearNearest: document.getElementById('clearNearest'),
       nearbyStatus: document.getElementById('nearbyStatus'),
       competitionToggle: document.getElementById('competitionToggle'),
+      competitionSearch: document.getElementById('competitionSearch'),
+      competitionFilters: document.getElementById('competitionFilters'),
       competitionStatus: document.getElementById('competitionStatus'),
       hailLayerToggle: document.getElementById('hailLayerToggle'),
       hailFilterToggle: document.getElementById('hailFilterToggle'),
@@ -568,51 +572,73 @@
       }
     }
 
-    function escapeHtml(value) {
-      return String(value || '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+    function escapeCompetitionHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
     }
 
     function parseCompetitionCoordinate(value, limit) {
       const raw = String(value ?? '').trim().replace(/\s/g, '');
       if (!raw) return NaN;
-      let number = Number(raw.replace(',', '.'));
-      if (Number.isFinite(number) && Math.abs(number) <= limit) return number;
-      // Recupera números a los que Sheets haya aplicado separador de miles: 403850 -> 40.3850.
-      const digits = raw.replace(/[^\d-]/g, '');
-      number = Number(digits);
-      if (Number.isFinite(number) && Math.abs(number / 10000) <= limit) return number / 10000;
-      return NaN;
+      const groupedThousands = /^-?\d{1,3}(?:\.\d{3})+$/.test(raw);
+      if (groupedThousands) {
+        const recovered = Number(raw.replace(/[^\d-]/g, '')) / 10000;
+        if (Number.isFinite(recovered) && Math.abs(recovered) <= limit) return recovered;
+      }
+      const direct = Number(raw.replace(',', '.'));
+      if (Number.isFinite(direct) && Math.abs(direct) <= limit) return direct;
+      const recovered = Number(raw.replace(/[^\d-]/g, '')) / 10000;
+      return Number.isFinite(recovered) && Math.abs(recovered) <= limit ? recovered : NaN;
     }
 
     function normalizeCompetitionRow(row) {
       return {
-        id: String(row.id || '').trim(), red: String(row.red || 'Sin red').trim(),
-        nombre: String(row.nombre || 'Centro sin nombre').trim(), direccion: String(row.direccion || '').trim(),
-        cp: String(row.cp || '').trim(), localidad: String(row.localidad || '').trim(),
+        id: String(row.id || '').trim(), red: String(row.red || '').trim(), nombre: String(row.nombre || '').trim(),
+        direccion: String(row.direccion || '').trim(), cp: String(row.cp || '').trim(), localidad: String(row.localidad || '').trim(),
         provincia: String(row.provincia || '').trim(), notas: String(row.notas || '').trim(),
         lat: parseCompetitionCoordinate(row.lat, 90), lon: parseCompetitionCoordinate(row.lon, 180)
       };
     }
 
     function validCompetition(item) {
-      return Number.isFinite(item.lat) && Math.abs(item.lat) <= 90 && Number.isFinite(item.lon) && Math.abs(item.lon) <= 180;
+      return Boolean(item.red && item.nombre) && Number.isFinite(item.lat) && Math.abs(item.lat) <= 90 && Number.isFinite(item.lon) && Math.abs(item.lon) <= 180;
     }
 
     function competitionIcon() {
-      return L.divIcon({
-        html: '<div class="marker-wrap"><div class="marker-pin" style="background:#e57200"></div></div>',
-        className: '', iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -18]
+      return L.divIcon({ html: '<div class="marker-wrap"><div class="marker-pin" style="background:#e57200"></div></div>', className: '', iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -18] });
+    }
+
+    function renderCompetitionFilters() {
+      const networks = ['Todas', ...new Set(appState.competition.map(item => item.red).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es')))];
+      renderChips(els.competitionFilters, networks, appState.activeCompetition, value => {
+        appState.activeCompetition = value;
+        renderCompetitionFilters();
+        renderCompetition();
+      });
+    }
+
+    function matchingCompetition() {
+      const query = normalizeText(appState.competitionSearch);
+      return appState.competition.filter(item => {
+        const networkMatch = appState.activeCompetition === 'Todas' || item.red === appState.activeCompetition;
+        const text = normalizeText([item.red, item.nombre, item.direccion, item.cp, item.localidad, item.provincia, item.notas].join(' '));
+        return networkMatch && (!query || text.includes(query)) && validCompetition(item);
       });
     }
 
     function renderCompetition() {
       competitionLayer.clearLayers();
-      if (!appState.competitionEnabled) return;
-      appState.competition.filter(validCompetition).forEach(item => {
-        const location = [item.cp, item.localidad].filter(Boolean).join(', ');
-        const popup = `<strong>${escapeHtml(item.nombre)}</strong><br><span style="color:#e57200;font-weight:700">${escapeHtml(item.red)}</span>${item.direccion ? `<br>${escapeHtml(item.direccion)}` : ''}${location ? `<br>${escapeHtml(location)}` : ''}${item.provincia ? `<br>${escapeHtml(item.provincia)}` : ''}${item.notas ? `<br><small>${escapeHtml(item.notas)}</small>` : ''}`;
-        L.marker([item.lat, item.lon], { icon: competitionIcon() }).bindPopup(popup).addTo(competitionLayer);
-      });
+      const visible = matchingCompetition();
+      if (appState.competitionEnabled) {
+        visible.forEach(item => {
+          const locality = [item.cp, item.localidad].filter(Boolean).join(', ');
+          const popup = `<strong>${escapeCompetitionHtml(item.nombre)}</strong><br><span style="color:#e57200;font-weight:700">${escapeCompetitionHtml(item.red)}</span>${item.direccion ? `<br>${escapeCompetitionHtml(item.direccion)}` : ''}${locality ? `<br>${escapeCompetitionHtml(locality)}` : ''}${item.provincia ? `<br>${escapeCompetitionHtml(item.provincia)}` : ''}${item.notas ? `<br><small>${escapeCompetitionHtml(item.notas)}</small>` : ''}`;
+          L.marker([item.lat, item.lon], { icon: competitionIcon() }).bindPopup(popup).addTo(competitionLayer);
+        });
+      }
+      const total = visible.length;
+      els.competitionStatus.textContent = total
+        ? `${total} centro${total === 1 ? '' : 's'} de competencia ${appState.competitionEnabled ? 'visible' : 'disponible'}${total === 1 ? '' : 's'}.`
+        : 'No hay centros de competencia que coincidan con el filtro.';
     }
 
     async function loadCompetition() {
@@ -621,16 +647,13 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const rows = parseCSV(await response.text()).map(normalizeCompetitionRow);
         appState.competition = rows;
-        const valid = rows.filter(validCompetition).length;
-        const invalid = rows.length - valid;
-        els.competitionStatus.textContent = valid
-          ? `${valid} centro${valid === 1 ? '' : 's'} disponible${valid === 1 ? '' : 's'}${invalid ? ` · ${invalid} con coordenadas no válidas` : ''}.`
-          : (rows.length ? 'No hay centros con coordenadas válidas.' : 'No hay centros de competencia todavía.');
+        renderCompetitionFilters();
         renderCompetition();
       } catch (error) {
         console.warn('No se pudo cargar competencia:', error);
         appState.competition = [];
-        els.competitionStatus.textContent = 'No se ha podido cargar competencia. El mapa propio sigue disponible.';
+        renderCompetitionFilters();
+        els.competitionStatus.textContent = 'No se ha podido cargar competencia. Los talleres propios siguen disponibles.';
       }
     }
 
@@ -1030,7 +1053,15 @@
     els.findNearest.addEventListener('click', findNearest);
     els.clearNearest.addEventListener('click', clearNearbyOrigin);
     els.nearbyInput.addEventListener('keydown', event => { if (event.key === 'Enter') findNearest(); });
-    els.competitionToggle.addEventListener('change', event => { appState.competitionEnabled = event.target.checked; renderCompetition(); });
+    els.competitionToggle.addEventListener('change', event => {
+      appState.competitionEnabled = event.target.checked;
+      els.competitionSearch.disabled = !appState.competitionEnabled;
+      renderCompetition();
+    });
+    els.competitionSearch.addEventListener('input', event => {
+      appState.competitionSearch = event.target.value;
+      renderCompetition();
+    });
     els.hailLayerToggle.addEventListener('change', event => { appState.hailLayerEnabled = event.target.checked; renderHailstorms(); });
     els.hailFilterToggle.addEventListener('change', event => { appState.onlyHailAffected = event.target.checked; applyFilters(); });
     els.provinceLayerToggle.addEventListener('change', toggleProvinceLayer);
@@ -1043,3 +1074,4 @@
   </script>
 </body>
 </html>
+
