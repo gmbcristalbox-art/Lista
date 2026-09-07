@@ -92,6 +92,9 @@
     .detail-label { display: block; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); margin-bottom: .3rem; }
     .detail-close { position: absolute; top: 14px; right: 14px; width: 38px; height: 38px; border-radius: 50%; border: 1px solid rgba(40,37,29,.12); background: var(--color-surface-2); cursor: pointer; color: var(--color-text); }
     .service-grid { display: grid; gap: .6rem; margin-top: 1rem; }
+    .route-actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1rem; }
+    .route-actions .chip:disabled { opacity: .52; cursor: not-allowed; }
+    .route-status { margin-top: .65rem; color: var(--color-text-muted); font-size: var(--text-sm); line-height: 1.35; }
     .service-item { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .8rem .9rem; background: var(--color-bg); border: 1px solid rgba(40,37,29,.08); border-radius: var(--radius-lg); }
     .service-name { font-size: var(--text-sm); font-weight: 600; }
     .service-status { display: inline-flex; align-items: center; gap: .45rem; font-size: var(--text-sm); font-weight: 700; }
@@ -291,6 +294,7 @@
     const markersLayer = L.layerGroup().addTo(map);
     const originLayer = L.layerGroup().addTo(map);
     const hailLayer = L.layerGroup().addTo(map);
+    const routeLayer = L.layerGroup().addTo(map);
     let provinceLayer = null;
     let provinceGeoJSON = null;
 
@@ -674,6 +678,60 @@
       }).join('');
     }
 
+    function formatDuration(seconds) {
+      const minutes = Math.round(seconds / 60);
+      if (minutes < 60) return `${minutes} min`;
+      return `${Math.floor(minutes / 60)} h ${minutes % 60 ? `${minutes % 60} min` : ''}`.trim();
+    }
+    function routeButtons(item) {
+      const current = els.detailGrid.querySelector('.route-block');
+      if (current) current.remove();
+      const block = document.createElement('div');
+      block.className = 'detail-block route-block';
+      const hasOrigin = appState.nearbyOrigin && Number.isFinite(appState.nearbyOrigin.lat) && Number.isFinite(appState.nearbyOrigin.lon);
+      block.innerHTML = `
+        <span class="detail-label">Ruta por carretera</span>
+        <div class="route-status">${hasOrigin ? `Origen: ${appState.nearbyOrigin.label}` : 'Busca primero la dirección o ubicación del cliente en “Taller más cercano”.'}</div>
+        <div class="route-actions">
+          <button class="chip active" type="button" data-route ${hasOrigin ? '' : 'disabled'}>Trazar ruta</button>
+          <button class="chip" type="button" data-maps ${hasOrigin ? '' : 'disabled'}>Abrir en Google Maps</button>
+          <button class="chip" type="button" data-clear-route>Eliminar ruta</button>
+        </div>`;
+      els.detailGrid.appendChild(block);
+      const status = block.querySelector('.route-status');
+      block.querySelector('[data-route]').addEventListener('click', () => drawRoute(item, status));
+      block.querySelector('[data-maps]').addEventListener('click', () => openGoogleMapsRoute(item));
+      block.querySelector('[data-clear-route]').addEventListener('click', () => { routeLayer.clearLayers(); status.textContent = hasOrigin ? 'Ruta eliminada.' : 'No hay una ruta activa.'; });
+    }
+    function openGoogleMapsRoute(item) {
+      if (!appState.nearbyOrigin) return;
+      const origin = `${appState.nearbyOrigin.lat},${appState.nearbyOrigin.lon}`;
+      const destination = `${item.lat},${item.lon}`;
+      window.open(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`, '_blank', 'noopener');
+    }
+    async function drawRoute(item, status) {
+      if (!appState.nearbyOrigin) { status.textContent = 'Busca primero la dirección o ubicación del cliente.'; return; }
+      status.textContent = 'Calculando ruta por carretera…';
+      routeLayer.clearLayers();
+      try {
+        const origin = appState.nearbyOrigin;
+        const coordinates = `${origin.lon},${origin.lat};${item.lon},${item.lat}`;
+        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`);
+        if (!response.ok) throw new Error('No se ha podido calcular la ruta');
+        const result = await response.json();
+        const route = result.routes && result.routes[0];
+        if (!route) throw new Error('No hay ruta disponible');
+        L.geoJSON(route.geometry, { style: { color: '#7b2cbf', weight: 6, opacity: .86, lineCap: 'round', lineJoin: 'round' } }).addTo(routeLayer);
+        L.circleMarker([origin.lat, origin.lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#7b2cbf', fillOpacity: 1 }).bindPopup('<strong>Origen del cliente</strong>').addTo(routeLayer);
+        status.innerHTML = `<strong>${formatDistance(route.distance / 1000)}</strong> por carretera · <strong>${formatDuration(route.duration)}</strong> estimados`;
+        const bounds = routeLayer.getBounds();
+        if (bounds.isValid()) map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14 });
+      } catch (error) {
+        console.error(error);
+        status.textContent = 'No se ha podido calcular la ruta. Prueba de nuevo o ábrela en Google Maps.';
+      }
+    }
+
     function openDetail(item) {
       els.detailTitle.textContent = item.nombre || 'Taller';
       els.detailSubtitle.textContent = item.direccion || 'Sin dirección';
@@ -704,6 +762,7 @@
           <span class="detail-label">${label}</span>
           <div>${value}</div>
         </div>`).join('');
+      routeButtons(item);
       renderServices(item);
       renderIncidents(item);
       els.detailPanel.classList.add('open');
