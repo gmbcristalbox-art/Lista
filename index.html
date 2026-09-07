@@ -157,9 +157,7 @@
       <section class="panel">
         <h2>Competencia</h2>
         <label class="analysis-toggle"><input id="competitionToggle" type="checkbox"> Mostrar competencia</label>
-        <input id="competitionSearch" class="search competition-search" type="search" placeholder="Buscar red, centro o localidad…" disabled>
-        <div id="competitionFilters" class="chips"></div>
-        <div id="competitionStatus" class="analysis-status">Cargando competencia…</div>
+        <div id="competitionStatus" class="analysis-status">Competencia sin cargar.</div>
       </section>
 
       <section class="panel">
@@ -294,7 +292,8 @@
       raw: [], filtered: [], servicesById: {}, incidentsById: {}, allCompanies: ['Todas'],
       activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
       activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: '', nearbyOrigin: null,
-      provinceLayerEnabled: false, provinceMetric: 'workshops', hailstorms: [], hailLayerEnabled: false, onlyHailAffected: false, competition: [], competitionEnabled: false, activeCompetition: 'Todas', competitionSearch: ''
+      provinceLayerEnabled: false, provinceMetric: 'workshops', hailstorms: [], hailLayerEnabled: false, onlyHailAffected: false,
+      competition: [], competitionEnabled: false
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
@@ -328,7 +327,8 @@
       findNearest: document.getElementById('findNearest'),
       clearNearest: document.getElementById('clearNearest'),
       nearbyStatus: document.getElementById('nearbyStatus'),
-      competitionToggle: document.getElementById('competitionToggle'), competitionSearch: document.getElementById('competitionSearch'), competitionFilters: document.getElementById('competitionFilters'), competitionStatus: document.getElementById('competitionStatus'),
+      competitionToggle: document.getElementById('competitionToggle'),
+      competitionStatus: document.getElementById('competitionStatus'),
       hailLayerToggle: document.getElementById('hailLayerToggle'),
       hailFilterToggle: document.getElementById('hailFilterToggle'),
       hailStatus: document.getElementById('hailStatus'),
@@ -569,14 +569,75 @@
       }
     }
 
-    function competitionEsc(v) { return String(v || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-    function competitionCoord(v, max) { const x=String(v ?? '').trim().replace(/\s/g,''); if(!x)return NaN; const n=Number(x.replace(',','.')); if(Number.isFinite(n)&&Math.abs(n)<=max)return n; const recovered=Number(x.replace(/[^\d-]/g,''))/10000; return Number.isFinite(recovered)&&Math.abs(recovered)<=max?recovered:NaN; }
-    function normalizeCompetitionRow(r) { return {red:String(r.red||'').trim(),nombre:String(r.nombre||'').trim(),direccion:String(r.direccion||'').trim(),cp:String(r.cp||'').trim(),localidad:String(r.localidad||'').trim(),provincia:String(r.provincia||'').trim(),notas:String(r.notas||'').trim(),lat:competitionCoord(r.lat,90),lon:competitionCoord(r.lon,180)}; }
-    function validCompetition(x) { return x.red && x.nombre && Number.isFinite(x.lat) && Number.isFinite(x.lon); }
-    function competitionColor(red) { return COMPETITION_COLORS[red] || '#e57200'; }
-    function renderCompetitionFilters() { const networks=['Todas',...new Set(appState.competition.map(x=>x.red).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es')))]; renderChips(els.competitionFilters,networks,appState.activeCompetition,v=>{appState.activeCompetition=v;renderCompetitionFilters();renderCompetition();}); }
-    function renderCompetition() { competitionLayer.clearLayers(); const q=normalizeText(appState.competitionSearch); const items=appState.competition.filter(x=>(appState.activeCompetition==='Todas'||x.red===appState.activeCompetition)&&(!q||normalizeText([x.red,x.nombre,x.direccion,x.cp,x.localidad,x.provincia,x.notas].join(' ')).includes(q))&&validCompetition(x)); if(appState.competitionEnabled)items.forEach(x=>{const loc=[x.cp,x.localidad].filter(Boolean).join(', ');const p=`<strong>${competitionEsc(x.nombre)}</strong><br><span style="color:${competitionColor(x.red)};font-weight:700">${competitionEsc(x.red)}</span>${x.direccion?`<br>${competitionEsc(x.direccion)}`:''}${loc?`<br>${competitionEsc(loc)}`:''}${x.provincia?`<br>${competitionEsc(x.provincia)}`:''}${x.notas?`<br><small>${competitionEsc(x.notas)}</small>`:''}`;L.circleMarker([x.lat,x.lon],{radius:8,color:'#fff',weight:2,fillColor:competitionColor(x.red),fillOpacity:1}).bindPopup(p).addTo(competitionLayer);}); els.competitionStatus.textContent=`${items.length} centro${items.length===1?'':'s'} de competencia ${appState.competitionEnabled?'visible':'disponible'}${items.length===1?'':'s'}.`; }
-    async function loadCompetition() { try { const r=await fetch(COMPETITION_CSV_URL,{cache:'no-store'});if(!r.ok)throw new Error(r.status);appState.competition=parseCSV(await r.text()).map(normalizeCompetitionRow);renderCompetitionFilters();renderCompetition(); } catch(e) { console.warn(e);els.competitionStatus.textContent='No se ha podido cargar competencia. Los talleres propios siguen disponibles.'; } }
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+    }
+
+    function parseCompetitionCoordinate(value, limit) {
+      const raw = String(value ?? '').trim().replace(/\s/g, '');
+      if (!raw) return NaN;
+      let number = Number(raw.replace(',', '.'));
+      if (Number.isFinite(number) && Math.abs(number) <= limit) return number;
+      // Recupera números a los que Sheets haya aplicado separador de miles: 403850 -> 40.3850.
+      const digits = raw.replace(/[^\d-]/g, '');
+      number = Number(digits);
+      if (Number.isFinite(number) && Math.abs(number / 10000) <= limit) return number / 10000;
+      return NaN;
+    }
+
+    function normalizeCompetitionRow(row) {
+      return {
+        id: String(row.id || '').trim(), red: String(row.red || 'Sin red').trim(),
+        nombre: String(row.nombre || 'Centro sin nombre').trim(), direccion: String(row.direccion || '').trim(),
+        cp: String(row.cp || '').trim(), localidad: String(row.localidad || '').trim(),
+        provincia: String(row.provincia || '').trim(), notas: String(row.notas || '').trim(),
+        lat: parseCompetitionCoordinate(row.lat, 90), lon: parseCompetitionCoordinate(row.lon, 180)
+      };
+    }
+
+    function validCompetition(item) {
+      return Number.isFinite(item.lat) && Math.abs(item.lat) <= 90 && Number.isFinite(item.lon) && Math.abs(item.lon) <= 180;
+    }
+
+    function competitionColor(network) {
+      return COMPETITION_COLORS[network] || '#e57200';
+    }
+    function competitionIcon(network) {
+      const color = competitionColor(network);
+      return L.divIcon({
+        html: `<svg width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="Competencia ${network}"><path d="M12 1.8 21 7v10L12 22.2 3 17V7z" fill="${color}" stroke="#fff" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="#fff"/></svg>`,
+        className: '', iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -14]
+      });
+    }
+
+    function renderCompetition() {
+      competitionLayer.clearLayers();
+      if (!appState.competitionEnabled) return;
+      appState.competition.filter(validCompetition).forEach(item => {
+        const location = [item.cp, item.localidad].filter(Boolean).join(', ');
+        const popup = `<strong>${escapeHtml(item.nombre)}</strong><br><span style="color:${competitionColor(item.red)};font-weight:700">${escapeHtml(item.red)}</span>${item.direccion ? `<br>${escapeHtml(item.direccion)}` : ''}${location ? `<br>${escapeHtml(location)}` : ''}${item.provincia ? `<br>${escapeHtml(item.provincia)}` : ''}${item.notas ? `<br><small>${escapeHtml(item.notas)}</small>` : ''}`;
+        L.marker([item.lat, item.lon], { icon: competitionIcon(item.red) }).bindPopup(popup).addTo(competitionLayer);
+      });
+    }
+
+    async function loadCompetition() {
+      try {
+        const response = await fetch(COMPETITION_CSV_URL, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const rows = parseCSV(await response.text()).map(normalizeCompetitionRow);
+        appState.competition = rows;
+        const valid = rows.filter(validCompetition).length;
+        const invalid = rows.length - valid;
+        els.competitionStatus.textContent = valid
+          ? `${valid} centro${valid === 1 ? '' : 's'} disponible${valid === 1 ? '' : 's'}${invalid ? ` · ${invalid} con coordenadas no válidas` : ''}.`
+          : (rows.length ? 'No hay centros con coordenadas válidas.' : 'No hay centros de competencia todavía.');
+        renderCompetition();
+      } catch (error) {
+        console.warn('No se pudo cargar competencia:', error);
+        appState.competition = [];
+        els.competitionStatus.textContent = 'No se ha podido cargar competencia. El mapa propio sigue disponible.';
+      }
+    }
 
     function normalizeHailstormRow(r) {
       return {
@@ -974,8 +1035,7 @@
     els.findNearest.addEventListener('click', findNearest);
     els.clearNearest.addEventListener('click', clearNearbyOrigin);
     els.nearbyInput.addEventListener('keydown', event => { if (event.key === 'Enter') findNearest(); });
-    els.competitionToggle.addEventListener('change',e=>{appState.competitionEnabled=e.target.checked;els.competitionSearch.disabled=!e.target.checked;renderCompetition();});
-    els.competitionSearch.addEventListener('input',e=>{appState.competitionSearch=e.target.value;renderCompetition();});
+    els.competitionToggle.addEventListener('change', event => { appState.competitionEnabled = event.target.checked; renderCompetition(); });
     els.hailLayerToggle.addEventListener('change', event => { appState.hailLayerEnabled = event.target.checked; renderHailstorms(); });
     els.hailFilterToggle.addEventListener('change', event => { appState.onlyHailAffected = event.target.checked; applyFilters(); });
     els.provinceLayerToggle.addEventListener('change', toggleProvinceLayer);
