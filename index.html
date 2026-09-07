@@ -61,8 +61,6 @@
     .analysis-select:disabled { opacity: .55; cursor: not-allowed; }
     .analysis-status { min-height: 1.25rem; margin-top: .6rem; color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; }
     .hail-filter-toggle { margin-top: .65rem; }
-    .competition-search { margin-top: .7rem; }
-    .competition-search:disabled { opacity: .55; cursor: not-allowed; }
     .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; }
     .stat { background: var(--color-bg); border: 1px solid rgba(40,37,29,.1); border-radius: var(--radius-lg); padding: .85rem .9rem; }
     .stat strong { display: block; font-size: var(--text-xl); line-height: 1; margin-bottom: .25rem; }
@@ -159,7 +157,7 @@
       <section class="panel">
         <h2>Competencia</h2>
         <label class="analysis-toggle"><input id="competitionToggle" type="checkbox"> Mostrar competencia</label>
-        <input id="competitionSearch" class="search competition-search" type="search" placeholder="Buscar red, centro, localidad..." disabled />
+        <input id="competitionSearch" class="search competition-search" type="search" placeholder="Buscar red, centro o localidad…" disabled>
         <div id="competitionFilters" class="chips"></div>
         <div id="competitionStatus" class="analysis-status">Cargando competencia…</div>
       </section>
@@ -296,8 +294,7 @@
       raw: [], filtered: [], servicesById: {}, incidentsById: {}, allCompanies: ['Todas'],
       activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
       activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: '', nearbyOrigin: null,
-      provinceLayerEnabled: false, provinceMetric: 'workshops', hailstorms: [], hailLayerEnabled: false, onlyHailAffected: false,
-      competition: [], competitionEnabled: false, activeCompetition: 'Todas', competitionSearch: ''
+      provinceLayerEnabled: false, provinceMetric: 'workshops', hailstorms: [], hailLayerEnabled: false, onlyHailAffected: false, competition: [], competitionEnabled: false, activeCompetition: 'Todas', competitionSearch: ''
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
@@ -331,10 +328,7 @@
       findNearest: document.getElementById('findNearest'),
       clearNearest: document.getElementById('clearNearest'),
       nearbyStatus: document.getElementById('nearbyStatus'),
-      competitionToggle: document.getElementById('competitionToggle'),
-      competitionSearch: document.getElementById('competitionSearch'),
-      competitionFilters: document.getElementById('competitionFilters'),
-      competitionStatus: document.getElementById('competitionStatus'),
+      competitionToggle: document.getElementById('competitionToggle'), competitionSearch: document.getElementById('competitionSearch'), competitionFilters: document.getElementById('competitionFilters'), competitionStatus: document.getElementById('competitionStatus'),
       hailLayerToggle: document.getElementById('hailLayerToggle'),
       hailFilterToggle: document.getElementById('hailFilterToggle'),
       hailStatus: document.getElementById('hailStatus'),
@@ -575,44 +569,14 @@
       }
     }
 
-    function normalizeCompetitionRow(r) {
-      return {
-        id: String(r.id || '').trim(), red: String(r.red || 'Sin red').trim(), nombre: String(r.nombre || 'Centro sin nombre').trim(),
-        direccion: String(r.direccion || '').trim(), cp: String(r.cp || '').trim(), localidad: String(r.localidad || '').trim(),
-        provincia: String(r.provincia || '').trim(), lat: Number(String(r.lat || '').replace(',', '.')), lon: Number(String(r.lon || '').replace(',', '.')), notas: String(r.notas || '').trim()
-      };
-    }
-    function validCompetition(item) { return Number.isFinite(item.lat) && Number.isFinite(item.lon); }
-    function competitionColor(network) {
-      return COMPETITION_COLORS[network] || '#e57200';
-    }
-    function competitionIcon(network) {
-      const color = competitionColor(network);
-      return L.divIcon({
-        html: `<svg width="24" height="24" viewBox="0 0 24 24" aria-label="${network}" role="img"><path d="M12 1.8 21 7v10L12 22.2 3 17V7z" fill="${color}" stroke="#fff" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="#fff"/></svg>`,
-        className: '', iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -14]
-      });
-    }
-    function renderCompetitionFilters() {
-      const networks = ['Todas', ...new Set(appState.competition.map(item => item.red).filter(Boolean)).sort()];
-      renderChips(els.competitionFilters, networks, appState.activeCompetition, value => { appState.activeCompetition = value; renderCompetition(); });
-    }
-    function renderCompetition() {
-      competitionLayer.clearLayers();
-      const q = normalizeText(appState.competitionSearch);
-      const visible = appState.competition.filter(item => {
-        const networkMatch = appState.activeCompetition === 'Todas' || item.red === appState.activeCompetition;
-        const haystack = normalizeText([item.red, item.nombre, item.direccion, item.cp, item.localidad, item.provincia, item.notas].join(' '));
-        return networkMatch && (!q || haystack.includes(q)) && validCompetition(item);
-      });
-      if (appState.competitionEnabled) {
-        visible.forEach(item => {
-          const popup = `<strong>${item.nombre}</strong><br><span style="color:${competitionColor(item.red)};font-weight:700">${item.red}</span>${item.direccion ? `<br>${item.direccion}` : ''}${item.cp || item.localidad ? `<br>${[item.cp, item.localidad].filter(Boolean).join(' ')}` : ''}${item.provincia ? `<br>${item.provincia}` : ''}${item.notas ? `<br><small>${item.notas}</small>` : ''}`;
-          L.marker([item.lat, item.lon], { icon: competitionIcon(item.red) }).bindPopup(popup).addTo(competitionLayer);
-        });
-      }
-      els.competitionStatus.textContent = `${visible.length} centro${visible.length === 1 ? '' : 's'} de competencia${appState.competitionEnabled ? ' visible' : ''}.`;
-    }
+    function competitionEsc(v) { return String(v || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function competitionCoord(v, max) { const x=String(v ?? '').trim().replace(/\s/g,''); if(!x)return NaN; const n=Number(x.replace(',','.')); if(Number.isFinite(n)&&Math.abs(n)<=max)return n; const recovered=Number(x.replace(/[^\d-]/g,''))/10000; return Number.isFinite(recovered)&&Math.abs(recovered)<=max?recovered:NaN; }
+    function normalizeCompetitionRow(r) { return {red:String(r.red||'').trim(),nombre:String(r.nombre||'').trim(),direccion:String(r.direccion||'').trim(),cp:String(r.cp||'').trim(),localidad:String(r.localidad||'').trim(),provincia:String(r.provincia||'').trim(),notas:String(r.notas||'').trim(),lat:competitionCoord(r.lat,90),lon:competitionCoord(r.lon,180)}; }
+    function validCompetition(x) { return x.red && x.nombre && Number.isFinite(x.lat) && Number.isFinite(x.lon); }
+    function competitionColor(red) { return COMPETITION_COLORS[red] || '#e57200'; }
+    function renderCompetitionFilters() { const networks=['Todas',...new Set(appState.competition.map(x=>x.red).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es')))]; renderChips(els.competitionFilters,networks,appState.activeCompetition,v=>{appState.activeCompetition=v;renderCompetitionFilters();renderCompetition();}); }
+    function renderCompetition() { competitionLayer.clearLayers(); const q=normalizeText(appState.competitionSearch); const items=appState.competition.filter(x=>(appState.activeCompetition==='Todas'||x.red===appState.activeCompetition)&&(!q||normalizeText([x.red,x.nombre,x.direccion,x.cp,x.localidad,x.provincia,x.notas].join(' ')).includes(q))&&validCompetition(x)); if(appState.competitionEnabled)items.forEach(x=>{const loc=[x.cp,x.localidad].filter(Boolean).join(', ');const p=`<strong>${competitionEsc(x.nombre)}</strong><br><span style="color:${competitionColor(x.red)};font-weight:700">${competitionEsc(x.red)}</span>${x.direccion?`<br>${competitionEsc(x.direccion)}`:''}${loc?`<br>${competitionEsc(loc)}`:''}${x.provincia?`<br>${competitionEsc(x.provincia)}`:''}${x.notas?`<br><small>${competitionEsc(x.notas)}</small>`:''}`;L.circleMarker([x.lat,x.lon],{radius:8,color:'#fff',weight:2,fillColor:competitionColor(x.red),fillOpacity:1}).bindPopup(p).addTo(competitionLayer);}); els.competitionStatus.textContent=`${items.length} centro${items.length===1?'':'s'} de competencia ${appState.competitionEnabled?'visible':'disponible'}${items.length===1?'':'s'}.`; }
+    async function loadCompetition() { try { const r=await fetch(COMPETITION_CSV_URL,{cache:'no-store'});if(!r.ok)throw new Error(r.status);appState.competition=parseCSV(await r.text()).map(normalizeCompetitionRow);renderCompetitionFilters();renderCompetition(); } catch(e) { console.warn(e);els.competitionStatus.textContent='No se ha podido cargar competencia. Los talleres propios siguen disponibles.'; } }
 
     function normalizeHailstormRow(r) {
       return {
@@ -968,17 +932,13 @@
 
     async function loadData() {
       try {
-        const competitionRequest = fetch(COMPETITION_CSV_URL, { cache: 'no-store' })
-          .then(response => response.ok ? response.text() : '')
-          .catch(() => '');
-        const [mainResponse, servicesResponse, incidentsResponse, hailResponse, competitionText] = await Promise.all([
+        const [mainResponse, servicesResponse, incidentsResponse, hailResponse] = await Promise.all([
           fetch(SHEET_CSV_URL, { cache: 'no-store' }),
           fetch(SERVICES_CSV_URL, { cache: 'no-store' }),
           fetch(INCIDENTS_CSV_URL, { cache: 'no-store' }),
-          fetch(HAILSTORMS_CSV_URL, { cache: 'no-store' }),
-          competitionRequest
+          fetch(HAILSTORMS_CSV_URL, { cache: 'no-store' })
         ]);
-        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok || !hailResponse.ok) throw new Error('No se pudo leer alguna hoja principal del Sheet');
+        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok || !hailResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
         const [mainText, servicesText, incidentsText, hailText] = await Promise.all([
           mainResponse.text(), servicesResponse.text(), incidentsResponse.text(), hailResponse.text()
         ]);
@@ -986,14 +946,9 @@
         const servicesRows = parseCSV(servicesText).map(normalizeServicesRow);
         const incidentRows = parseCSV(incidentsText).map(normalizeIncidentRow);
         const hailRows = parseCSV(hailText).map(normalizeHailstormRow).filter(hail => hail.id || hail.nombre);
-        const competitionAvailable = Boolean(competitionText.trim());
-        const competitionRows = competitionAvailable
-          ? parseCSV(competitionText).map(normalizeCompetitionRow).filter(item => item.id || item.nombre)
-          : [];
 
         appState.raw = data;
         appState.hailstorms = hailRows;
-        appState.competition = competitionRows;
         appState.servicesById = Object.fromEntries(servicesRows.filter(r => r.codigo).map(r => [r.codigo, r.services]));
 
         appState.incidentsById = {};
@@ -1006,15 +961,12 @@
 
         renderLegend();
         renderUIFilters();
-        renderCompetitionFilters();
-        renderCompetition();
         applyFilters();
-        if (!competitionAvailable) els.competitionStatus.textContent = 'Competencia no disponible todavía. Los talleres propios siguen cargados.';
-        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres · ${hailRows.length} granizadas${competitionAvailable ? ` · ${competitionRows.length} competencia` : ''}`;
+        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres · ${hailRows.length} granizadas`;
       } catch (error) {
         console.error(error);
-        els.sheetStatus.textContent = 'Error al cargar los Sheets principales';
-        els.resultList.innerHTML = '<div class="empty">No se han podido cargar los datos principales del Sheet publicado.</div>';
+        els.sheetStatus.textContent = 'Error al cargar los Sheets';
+        els.resultList.innerHTML = '<div class="empty">No se han podido cargar los datos del Sheet publicado.</div>';
       }
     }
 
@@ -1022,8 +974,8 @@
     els.findNearest.addEventListener('click', findNearest);
     els.clearNearest.addEventListener('click', clearNearbyOrigin);
     els.nearbyInput.addEventListener('keydown', event => { if (event.key === 'Enter') findNearest(); });
-    els.competitionToggle.addEventListener('change', event => { appState.competitionEnabled = event.target.checked; els.competitionSearch.disabled = !event.target.checked; renderCompetition(); });
-    els.competitionSearch.addEventListener('input', event => { appState.competitionSearch = event.target.value; renderCompetition(); });
+    els.competitionToggle.addEventListener('change',e=>{appState.competitionEnabled=e.target.checked;els.competitionSearch.disabled=!e.target.checked;renderCompetition();});
+    els.competitionSearch.addEventListener('input',e=>{appState.competitionSearch=e.target.value;renderCompetition();});
     els.hailLayerToggle.addEventListener('change', event => { appState.hailLayerEnabled = event.target.checked; renderHailstorms(); });
     els.hailFilterToggle.addEventListener('change', event => { appState.onlyHailAffected = event.target.checked; applyFilters(); });
     els.provinceLayerToggle.addEventListener('change', toggleProvinceLayer);
@@ -1032,6 +984,7 @@
       requestAnimationFrame(() => map.invalidateSize());
     });
     loadData();
+    loadCompetition();
   </script>
 </body>
 </html>
