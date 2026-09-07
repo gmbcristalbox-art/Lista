@@ -428,7 +428,7 @@
     }
     function setNearbyOrigin(lat, lon, label) {
       appState.nearbyOrigin = { lat, lon, label }; originLayer.clearLayers();
-      L.circleMarker([lat, lon], { radius: 9, color: '#fff', weight: 3, fillColor: '#c1121f', fillOpacity: 1 }).bindPopup(`<strong>Origen de la búsqueda</strong><br>${label}`).addTo(originLayer);
+      L.circleMarker([lat, lon], { radius: 9, color: '#fff', weight: 3, fillColor: '#7b2cbf', fillOpacity: 1 }).bindPopup(`<strong>Origen de la búsqueda</strong><br>${label}`).addTo(originLayer);
       els.nearbyStatus.textContent = `Resultados ordenados por distancia desde: ${label}.`; applyFilters();
     }
     function clearNearbyOrigin() { appState.nearbyOrigin = null; originLayer.clearLayers(); els.nearbyInput.value = ''; els.nearbyStatus.textContent = 'Introduce una localidad, código postal o coordenadas.'; applyFilters(); }
@@ -1048,3 +1048,5 @@
   </script>
 </body>
 </html>
+
+
