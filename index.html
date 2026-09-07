@@ -61,6 +61,8 @@
     .analysis-select:disabled { opacity: .55; cursor: not-allowed; }
     .analysis-status { min-height: 1.25rem; margin-top: .6rem; color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; }
     .hail-filter-toggle { margin-top: .65rem; }
+    .competition-search { margin-top: .7rem; }
+    .competition-search:disabled { opacity: .55; cursor: not-allowed; }
     .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; }
     .stat { background: var(--color-bg); border: 1px solid rgba(40,37,29,.1); border-radius: var(--radius-lg); padding: .85rem .9rem; }
     .stat strong { display: block; font-size: var(--text-xl); line-height: 1; margin-bottom: .25rem; }
@@ -152,6 +154,14 @@
         <div class="nearby-actions"><button id="findNearest" class="chip active" type="button">Buscar cercanos</button><button id="clearNearest" class="chip" type="button">Limpiar</button></div>
         <div id="nearbyStatus" class="nearby-status">Introduce una localidad, código postal o coordenadas.</div>
       " />
+      </section>
+
+      <section class="panel">
+        <h2>Competencia</h2>
+        <label class="analysis-toggle"><input id="competitionToggle" type="checkbox"> Mostrar competencia</label>
+        <input id="competitionSearch" class="search competition-search" type="search" placeholder="Buscar red, centro, localidad..." disabled />
+        <div id="competitionFilters" class="chips"></div>
+        <div id="competitionStatus" class="analysis-status">Cargando competencia…</div>
       </section>
 
       <section class="panel">
@@ -251,6 +261,7 @@
     const SERVICES_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=1319547953';
     const INCIDENTS_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=732355701';
     const HAILSTORMS_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=444707203';
+    const COMPETITION_CSV_URL = 'https://docs.google.com/spreadsheets/d/16SvDCssX-H0yxX40lXWSuYMuPcAFjRhAGXY9flh1fZE/export?format=csv&gid=937346229';
     const PROVINCES_GEOJSON_URL = 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/spain-provinces.geojson';
     const SERVICE_FIELDS = [
       { key: 'unidad movil', label: 'Unidad móvil' },
@@ -284,7 +295,8 @@
       raw: [], filtered: [], servicesById: {}, incidentsById: {}, allCompanies: ['Todas'],
       activeCommercial: 'Todos', activeIncident: 'Todas', activeCompany: 'Todas',
       activeService: 'Todos', activeState: 'Todos', activeTag: 'Todas', search: '', nearbyOrigin: null,
-      provinceLayerEnabled: false, provinceMetric: 'workshops', hailstorms: [], hailLayerEnabled: false, onlyHailAffected: false
+      provinceLayerEnabled: false, provinceMetric: 'workshops', hailstorms: [], hailLayerEnabled: false, onlyHailAffected: false,
+      competition: [], competitionEnabled: false, activeCompetition: 'Todas', competitionSearch: ''
     };
 
     const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([40.25, -3.7], 6);
@@ -295,6 +307,7 @@
     const originLayer = L.layerGroup().addTo(map);
     const hailLayer = L.layerGroup().addTo(map);
     const routeLayer = L.layerGroup().addTo(map);
+    const competitionLayer = L.layerGroup().addTo(map);
     let provinceLayer = null;
     let provinceGeoJSON = null;
 
@@ -317,6 +330,10 @@
       findNearest: document.getElementById('findNearest'),
       clearNearest: document.getElementById('clearNearest'),
       nearbyStatus: document.getElementById('nearbyStatus'),
+      competitionToggle: document.getElementById('competitionToggle'),
+      competitionSearch: document.getElementById('competitionSearch'),
+      competitionFilters: document.getElementById('competitionFilters'),
+      competitionStatus: document.getElementById('competitionStatus'),
       hailLayerToggle: document.getElementById('hailLayerToggle'),
       hailFilterToggle: document.getElementById('hailFilterToggle'),
       hailStatus: document.getElementById('hailStatus'),
@@ -555,6 +572,38 @@
         els.provinceMetric.disabled = true;
         els.provinceStatus.textContent = 'No se han podido cargar los límites provinciales.';
       }
+    }
+
+    function normalizeCompetitionRow(r) {
+      return {
+        id: String(r.id || '').trim(), red: String(r.red || 'Sin red').trim(), nombre: String(r.nombre || 'Centro sin nombre').trim(),
+        direccion: String(r.direccion || '').trim(), cp: String(r.cp || '').trim(), localidad: String(r.localidad || '').trim(),
+        provincia: String(r.provincia || '').trim(), lat: Number(String(r.lat || '').replace(',', '.')), lon: Number(String(r.lon || '').replace(',', '.')), notas: String(r.notas || '').trim()
+      };
+    }
+    function validCompetition(item) { return Number.isFinite(item.lat) && Number.isFinite(item.lon); }
+    function competitionIcon() {
+      return L.divIcon({ html: '<div class="marker-wrap"><div class="marker-pin" style="background:#e57200"></div></div>', className: '', iconSize: [22, 22], iconAnchor: [11, 22], popupAnchor: [0, -18] });
+    }
+    function renderCompetitionFilters() {
+      const networks = ['Todas', ...new Set(appState.competition.map(item => item.red).filter(Boolean)).sort()];
+      renderChips(els.competitionFilters, networks, appState.activeCompetition, value => { appState.activeCompetition = value; renderCompetition(); });
+    }
+    function renderCompetition() {
+      competitionLayer.clearLayers();
+      const q = normalizeText(appState.competitionSearch);
+      const visible = appState.competition.filter(item => {
+        const networkMatch = appState.activeCompetition === 'Todas' || item.red === appState.activeCompetition;
+        const haystack = normalizeText([item.red, item.nombre, item.direccion, item.cp, item.localidad, item.provincia, item.notas].join(' '));
+        return networkMatch && (!q || haystack.includes(q)) && validCompetition(item);
+      });
+      if (appState.competitionEnabled) {
+        visible.forEach(item => {
+          const popup = `<strong>${item.nombre}</strong><br><span style="color:#e57200;font-weight:700">${item.red}</span>${item.direccion ? `<br>${item.direccion}` : ''}${item.cp || item.localidad ? `<br>${[item.cp, item.localidad].filter(Boolean).join(' ')}` : ''}${item.provincia ? `<br>${item.provincia}` : ''}${item.notas ? `<br><small>${item.notas}</small>` : ''}`;
+          L.marker([item.lat, item.lon], { icon: competitionIcon() }).bindPopup(popup).addTo(competitionLayer);
+        });
+      }
+      els.competitionStatus.textContent = `${visible.length} centro${visible.length === 1 ? '' : 's'} de competencia${appState.competitionEnabled ? ' visible' : ''}.`;
     }
 
     function normalizeHailstormRow(r) {
@@ -911,23 +960,26 @@
 
     async function loadData() {
       try {
-        const [mainResponse, servicesResponse, incidentsResponse, hailResponse] = await Promise.all([
+        const [mainResponse, servicesResponse, incidentsResponse, hailResponse, competitionResponse] = await Promise.all([
           fetch(SHEET_CSV_URL, { cache: 'no-store' }),
           fetch(SERVICES_CSV_URL, { cache: 'no-store' }),
           fetch(INCIDENTS_CSV_URL, { cache: 'no-store' }),
-          fetch(HAILSTORMS_CSV_URL, { cache: 'no-store' })
+          fetch(HAILSTORMS_CSV_URL, { cache: 'no-store' }),
+          fetch(COMPETITION_CSV_URL, { cache: 'no-store' })
         ]);
-        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok || !hailResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
-        const [mainText, servicesText, incidentsText, hailText] = await Promise.all([
-          mainResponse.text(), servicesResponse.text(), incidentsResponse.text(), hailResponse.text()
+        if (!mainResponse.ok || !servicesResponse.ok || !incidentsResponse.ok || !hailResponse.ok || !competitionResponse.ok) throw new Error('No se pudo leer alguna hoja del Sheet');
+        const [mainText, servicesText, incidentsText, hailText, competitionText] = await Promise.all([
+          mainResponse.text(), servicesResponse.text(), incidentsResponse.text(), hailResponse.text(), competitionResponse.text()
         ]);
         const data = parseCSV(mainText).map(normalizeRecord);
         const servicesRows = parseCSV(servicesText).map(normalizeServicesRow);
         const incidentRows = parseCSV(incidentsText).map(normalizeIncidentRow);
         const hailRows = parseCSV(hailText).map(normalizeHailstormRow).filter(hail => hail.id || hail.nombre);
+        const competitionRows = parseCSV(competitionText).map(normalizeCompetitionRow).filter(item => item.id || item.nombre);
 
         appState.raw = data;
         appState.hailstorms = hailRows;
+        appState.competition = competitionRows;
         appState.servicesById = Object.fromEntries(servicesRows.filter(r => r.codigo).map(r => [r.codigo, r.services]));
 
         appState.incidentsById = {};
@@ -940,8 +992,10 @@
 
         renderLegend();
         renderUIFilters();
+        renderCompetitionFilters();
+        renderCompetition();
         applyFilters();
-        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres · ${hailRows.length} granizadas`;
+        els.sheetStatus.textContent = `Sheets conectados · ${data.length} talleres · ${hailRows.length} granizadas · ${competitionRows.length} competencia`;
       } catch (error) {
         console.error(error);
         els.sheetStatus.textContent = 'Error al cargar los Sheets';
@@ -953,6 +1007,8 @@
     els.findNearest.addEventListener('click', findNearest);
     els.clearNearest.addEventListener('click', clearNearbyOrigin);
     els.nearbyInput.addEventListener('keydown', event => { if (event.key === 'Enter') findNearest(); });
+    els.competitionToggle.addEventListener('change', event => { appState.competitionEnabled = event.target.checked; els.competitionSearch.disabled = !event.target.checked; renderCompetition(); });
+    els.competitionSearch.addEventListener('input', event => { appState.competitionSearch = event.target.value; renderCompetition(); });
     els.hailLayerToggle.addEventListener('change', event => { appState.hailLayerEnabled = event.target.checked; renderHailstorms(); });
     els.hailFilterToggle.addEventListener('change', event => { appState.onlyHailAffected = event.target.checked; applyFilters(); });
     els.provinceLayerToggle.addEventListener('change', toggleProvinceLayer);
