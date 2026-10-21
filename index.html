@@ -156,12 +156,11 @@
       .sidebar { order:1; height:auto; min-height:0; overflow:visible; padding:12px; gap:12px; border:0; }
       .sidebar > .brand { display:none; }
       .sidebar > .panel { display:none; }
-      body[data-mobile-tab="route"] #multiRoutePanel { display:block; }
-      body[data-mobile-tab="filters"] .sidebar > .panel:not(#multiRoutePanel) { display:block; }
+      body[data-mobile-tab="tools"] .sidebar > .panel { display:block; }
       body[data-mobile-tab="map"] .sidebar { display:none; }
       body[data-mobile-tab="map"] .map-wrap { height:calc(100dvh - 72px - env(safe-area-inset-bottom)); min-height:360px; }
-      body[data-mobile-tab="filters"] .map-wrap { height:30dvh; min-height:210px; }
-      .mobile-nav { position:fixed; display:grid; grid-template-columns:repeat(3,1fr); bottom:0; left:0; right:0; z-index:1500; padding:8px 10px calc(8px + env(safe-area-inset-bottom)); gap:8px; background:var(--color-surface); border-top:1px solid var(--color-border); box-shadow:0 -4px 20px #0002; }
+      body[data-mobile-tab="tools"] .map-wrap { height:38dvh; min-height:240px; }
+      .mobile-nav { position:fixed; display:grid; grid-template-columns:repeat(2,1fr); bottom:0; left:0; right:0; z-index:1500; padding:8px 10px calc(8px + env(safe-area-inset-bottom)); gap:8px; background:var(--color-surface); border-top:1px solid var(--color-border); box-shadow:0 -4px 20px #0002; }
       .mobile-nav button { min-height:48px; border-radius:12px; border:1px solid var(--color-border); background:var(--color-bg); color:var(--color-text); font-weight:700; font-size:14px; cursor:pointer; }
       .mobile-nav button[aria-selected="true"] { background:var(--color-primary); border-color:var(--color-primary); color:white; }
       .topbar { top:8px; left:8px; right:8px; }
@@ -185,8 +184,7 @@
 
   <nav class="mobile-nav" aria-label="Navegación móvil">
     <button type="button" data-mobile-target="map" aria-selected="false">🗺️ Mapa</button>
-    <button type="button" data-mobile-target="route" aria-selected="true">🧭 Multirruta</button>
-    <button type="button" data-mobile-target="filters" aria-selected="false">⚙️ Filtros</button>
+    <button type="button" data-mobile-target="tools" aria-selected="true">🧭 Multirruta y filtros</button>
   </nav>
   <div class="app">
     <aside class="sidebar">
@@ -1090,7 +1088,7 @@
 
     // Pestañas móviles: sin cambiar la interfaz de escritorio.
     function setMobileTab(tab){
-      if(!['map','route','filters'].includes(tab)) return;
+      if(!['map','tools'].includes(tab)) return;
       document.body.dataset.mobileTab=tab;
       document.querySelectorAll('[data-mobile-target]').forEach(button=>button.setAttribute('aria-selected',String(button.dataset.mobileTarget===tab)));
       if(window.matchMedia('(max-width: 980px)').matches){
@@ -1099,7 +1097,7 @@
       }
     }
     document.querySelectorAll('[data-mobile-target]').forEach(button=>button.addEventListener('click',()=>setMobileTab(button.dataset.mobileTarget)));
-    setMobileTab('route');
+    setMobileTab('tools');
     window.addEventListener('resize',()=>map.invalidateSize());
 
     // Planificador de Operaciones. No cambia las fuentes CSV existentes.
@@ -1140,7 +1138,7 @@
     map.on('click',event=>{
       if(!multi.picking)return;
       addMultiStop(`${event.latlng.lat.toFixed(5)}, ${event.latlng.lng.toFixed(5)}`,event.latlng.lat,event.latlng.lng);
-      setMapPick(false);setMobileTab('route');setMultiStatus('Punto añadido al recorrido.');
+      setMapPick(false);setMobileTab('tools');setMultiStatus('Punto añadido al recorrido.');
     });
     async function geocodeMultiStop(stop){
       if(Number.isFinite(stop.lat)&&Number.isFinite(stop.lon))return;
