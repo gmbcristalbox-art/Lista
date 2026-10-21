@@ -108,6 +108,24 @@
     .marker-wrap { position: relative; width: 18px; height: 18px; }
     .marker-alert { position: absolute; right: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid white; }
     .empty { color: var(--color-text-muted); font-size: var(--text-sm); }
+
+    /* Módulo de rutas de Operaciones */
+    .planner-help {font-size:var(--text-xs);color:var(--color-text-muted);line-height:1.45;margin:.45rem 0}
+    .planner-stop {display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:.4rem;align-items:center;margin:.55rem 0}
+    .planner-number {height:28px;width:28px;border-radius:50%;display:grid;place-items:center;background:var(--color-primary);color:#fff;font-size:.8rem;font-weight:800}
+    .planner-stop input {min-width:0;width:100%;font-size:var(--text-sm);padding:.65rem .6rem;border-radius:.5rem;border:1px solid var(--color-border);background:var(--color-bg);color:var(--color-text)}
+    .planner-controls {display:flex;gap:.25rem}.planner-controls button {border:1px solid var(--color-border);border-radius:.4rem;background:var(--color-bg);color:var(--color-text);padding:.4rem;cursor:pointer}
+    .planner-actions {display:flex;flex-wrap:wrap;gap:.4rem;margin:.7rem 0}
+    .planner-actions button {font-size:var(--text-sm)}
+    .planner-actions button:disabled {opacity:.4;cursor:not-allowed}
+    .planner-mode {margin:.7rem 0;display:flex;align-items:center;gap:.4rem;font-size:var(--text-sm)}
+    .planner-status {font-size:var(--text-sm);line-height:1.5;white-space:pre-line;color:var(--color-text-muted)}
+    .planner-status.error {color:var(--color-error)}
+    .planner-status.success {color:var(--color-success)}
+    .planner-stop.invalid input {border-color:var(--color-error)}
+    .route-pick-active #map {cursor:crosshair!important}
+    .route-stop-pin {height:28px;width:28px;border:2px solid white;border-radius:50%;display:grid;place-items:center;background:#7b2cbf;color:white;font-weight:800;box-shadow:0 3px 10px #0005}
+    .planner-info {margin-top:.65rem;font-size:var(--text-xs);color:var(--color-text-muted)}
     @media (max-width: 980px) {
       html, body { height: auto; overflow: auto; }
       .app { grid-template-columns: 1fr; height: auto; overflow: visible; }
@@ -151,7 +169,31 @@
         <input id="nearbyInput" class="search" type="search" placeholder="Localidad, CP o 40.4168, -3.7038" />
         <div class="nearby-actions"><button id="findNearest" class="chip active" type="button">Buscar cercanos</button><button id="clearNearest" class="chip" type="button">Limpiar</button></div>
         <div id="nearbyStatus" class="nearby-status">Introduce una localidad, código postal o coordenadas.</div>
-      " />
+      </section>
+
+
+      <section class="panel" id="multiRoutePanel">
+        <h2>Operaciones · Multirrutas</h2>
+        <p class="planner-help">Combina talleres Cristalbox y cualquier dirección de España. Escribe una dirección, usa «+ Taller» o marca un punto en el mapa.</p>
+        <div id="multiStops" aria-label="Paradas de la ruta"></div>
+        <div class="planner-actions">
+          <button class="chip" id="routeAddAddress" type="button">+ Dirección</button>
+          <button class="chip" id="routeAddWorkshop" type="button">+ Taller</button>
+          <button class="chip" id="routePickMap" type="button" aria-pressed="false">+ Punto del mapa</button>
+        </div>
+        <div id="routeWorkshopPicker" hidden>
+          <input id="routeWorkshopSearch" class="search" placeholder="Buscar taller por nombre, código o provincia…" aria-label="Buscar taller para la ruta" />
+          <div id="routeWorkshopResults" class="list" style="margin-top:.5rem;max-height:180px"></div>
+        </div>
+        <label class="planner-mode"><input id="routeReturn" type="checkbox" /> Volver al origen al terminar</label>
+        <div class="planner-actions">
+          <button id="routeCalculate" class="chip active" type="button">Calcular multirruta</button>
+          <button id="routeOptimize" class="chip" type="button">Optimizar orden</button>
+          <button id="routeGoogleMaps" class="chip" type="button" disabled>Abrir en Google Maps</button>
+          <button id="routeReset" class="chip" type="button">Limpiar ruta</button>
+        </div>
+        <div id="multiRouteStatus" class="planner-status" role="status" aria-live="polite">Añade al menos dos paradas.</div>
+        <p class="planner-info">Las direcciones se buscan mediante OpenStreetMap; los tiempos son aproximados y no incluyen tráfico. Las rutas no se guardan.</p>
       </section>
 
       <section class="panel">
@@ -304,6 +346,7 @@
     const originLayer = L.layerGroup().addTo(map);
     const hailLayer = L.layerGroup().addTo(map);
     const routeLayer = L.layerGroup().addTo(map);
+    const multiRouteLayer = L.layerGroup().addTo(map);
     const competitionLayer = L.layerGroup().addTo(map);
     let provinceLayer = null;
     let provinceGeoJSON = null;
@@ -950,12 +993,12 @@
       items.forEach(item => {
         const marker = L.marker([item.lat, item.lon], { icon: createMarkerIcon(item) });
         marker.bindPopup(`<strong>${item.nombre}</strong><br>${item.provincia} · ${item.comercial}${item.etiqueta ? `<br><span style="color:${incidentColors[item.etiqueta] || '#c1121f'};font-weight:700">${item.etiqueta}</span>` : ''}${item.tags && item.tags.length ? `<br><span style="color:#006494;font-size:.85em">${item.tags.join(', ')}</span>` : ''}`);
-        marker.on('click', () => openDetail(item));
+        marker.on('click', () => { if (multi.picking) { addWorkshopStop(item); setMapPick(false); } else openDetail(item); });
         marker.addTo(markersLayer);
         item._marker = marker;
         bounds.push([item.lat, item.lon]);
       });
-      if (bounds.length) map.fitBounds(bounds, { padding: [36, 36], maxZoom: 9 });
+      if (bounds.length && !multi.lastCalculated) map.fitBounds(bounds, { padding: [36, 36], maxZoom: 9 });
     }
 
     function getAllTags(data) {
@@ -990,6 +1033,132 @@
         notas: (r.notas || '').trim()
       };
     }
+
+
+    // Planificador de Operaciones. No cambia las fuentes CSV existentes.
+    const multi = {stops:[], nextId:1, picking:false, lastCalculated:null, busy:false};
+    const multiEls = Object.fromEntries(['multiStops','multiRouteStatus','routeWorkshopPicker','routeWorkshopSearch','routeWorkshopResults','routePickMap','routeGoogleMaps','routeReturn'].map(id=>[id,document.getElementById(id)]));
+    function addMultiStop(label='', lat=null, lon=null, workshop=false) {
+      multi.stops.push({id:multi.nextId++,label,lat,lon,workshop});
+      invalidateMultiRoute(); renderMultiStops();
+    }
+    function invalidateMultiRoute(){ multi.lastCalculated=null; multiRouteLayer.clearLayers(); multiEls.routeGoogleMaps.disabled=true; }
+    function setMultiStatus(message, type=''){multiEls.multiRouteStatus.textContent=message;multiEls.multiRouteStatus.className='planner-status '+type;}
+    function renderMultiStops(){
+      const target=multiEls.multiStops; target.replaceChildren();
+      multi.stops.forEach((stop,index)=>{
+        const row=document.createElement('div');row.className='planner-stop';
+        const num=document.createElement('span');num.className='planner-number';num.textContent=index+1;
+        const input=document.createElement('input');input.value=stop.label;input.placeholder=index===0?'Origen: dirección o taller':'Parada: dirección o taller';input.setAttribute('aria-label',`Parada ${index+1}`);
+        input.addEventListener('input',()=>{stop.label=input.value;stop.lat=null;stop.lon=null;stop.workshop=false;invalidateMultiRoute();setMultiStatus('Direcciones pendientes de localizar.');});
+        const controls=document.createElement('div');controls.className='planner-controls';
+        for (const [symbol,title,fn,disabled] of [['↑','Subir parada',()=>moveMulti(index,-1),index===0],['↓','Bajar parada',()=>moveMulti(index,1),index===multi.stops.length-1],['×','Quitar parada',()=>{multi.stops.splice(index,1);invalidateMultiRoute();renderMultiStops();},false]]) {
+          const b=document.createElement('button');b.type='button';b.textContent=symbol;b.title=title;b.setAttribute('aria-label',title);b.disabled=disabled;b.addEventListener('click',fn);controls.appendChild(b);
+        }
+        row.append(num,input,controls);target.appendChild(row);
+      });
+    }
+    function moveMulti(index,direction){const other=index+direction;if(other<0||other>=multi.stops.length)return;[multi.stops[index],multi.stops[other]]=[multi.stops[other],multi.stops[index]];invalidateMultiRoute();renderMultiStops();setMultiStatus('Orden de paradas actualizado.');}
+    function addWorkshopStop(item){addMultiStop(`${item.nombre} (${item.codigo})`,item.lat,item.lon,true);multiEls.routeWorkshopPicker.hidden=true;setMultiStatus(`Añadido: ${item.nombre}`);}
+    function renderWorkshopResults(){
+      const query=normalizeText(multiEls.routeWorkshopSearch.value);
+      const list=appState.raw.filter(item=>validCoords(item)&&(!query||normalizeText([item.nombre,item.codigo,item.provincia,item.direccion].join(' ')).includes(query))).slice(0,30);
+      multiEls.routeWorkshopResults.replaceChildren();
+      for(const item of list){const b=document.createElement('button');b.type='button';b.className='list-item';const name=document.createElement('strong');name.textContent=item.nombre;const extra=document.createElement('small');extra.textContent=`${item.codigo} · ${item.provincia}`;b.append(name,extra);b.addEventListener('click',()=>addWorkshopStop(item));multiEls.routeWorkshopResults.appendChild(b);}
+      if(!list.length)multiEls.routeWorkshopResults.textContent='No hay talleres coincidentes.';
+    }
+    function setMapPick(value){multi.picking=value;multiEls.routePickMap.classList.toggle('active',value);multiEls.routePickMap.setAttribute('aria-pressed',String(value));document.body.classList.toggle('route-pick-active',value);}
+    map.on('click',event=>{
+      if(!multi.picking)return;
+      addMultiStop(`${event.latlng.lat.toFixed(5)}, ${event.latlng.lng.toFixed(5)}`,event.latlng.lat,event.latlng.lng);
+      setMapPick(false);setMultiStatus('Punto añadido al recorrido.');
+    });
+    async function geocodeMultiStop(stop){
+      if(Number.isFinite(stop.lat)&&Number.isFinite(stop.lon))return;
+      const coords=parseCoordinates(stop.label);
+      if(coords){stop.lat=coords.lat;stop.lon=coords.lon;return;}
+      const q=stop.label.trim();if(!q)throw new Error('Una de las paradas está vacía.');
+      const params=new URLSearchParams({q:q+', España',format:'jsonv2',limit:'1',countrycodes:'es'});
+      const response=await fetch(`https://nominatim.openstreetmap.org/search?${params}`,{headers:{Accept:'application/json'}});
+      if(!response.ok)throw new Error('Error al localizar: '+q);
+      const data=await response.json();
+      if(!data.length)throw new Error(`Dirección no encontrada: ${q}. Prueba añadiendo localidad o código postal.`);
+      stop.lat=Number(data[0].lat);stop.lon=Number(data[0].lon);
+    }
+    async function resolveMultiStops(){
+      for(let i=0;i<multi.stops.length;i++){
+        if(!Number.isFinite(multi.stops[i].lat)||!Number.isFinite(multi.stops[i].lon)){
+          setMultiStatus(`Localizando parada ${i+1} de ${multi.stops.length}…`);
+          await geocodeMultiStop(multi.stops[i]);
+          // El servicio público Nominatim limita la frecuencia de solicitudes.
+          if(i<multi.stops.length-1)await new Promise(resolve=>setTimeout(resolve,1100));
+        }
+      }
+    }
+    function renderMultiRoute(route){
+      multiRouteLayer.clearLayers();
+      L.geoJSON(route.geometry,{style:{color:'#e87917',weight:6,opacity:.94,lineCap:'round',lineJoin:'round'}}).addTo(multiRouteLayer);
+      const points=multi.stops.concat(multiEls.routeReturn.checked?[multi.stops[0]]:[]);
+      points.forEach((stop,index)=>{
+        const icon=L.divIcon({className:'',html:`<div class="route-stop-pin">${index+1}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
+        L.marker([stop.lat,stop.lon],{icon,zIndexOffset:1000}).bindPopup(`<strong>Parada ${index+1}</strong><br>${escapeHtml(stop.label)}`).addTo(multiRouteLayer);
+      });
+      const bounds=multiRouteLayer.getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[55,55],maxZoom:13});
+    }
+    async function calculateMultiRoute(optimize=false){
+      if(multi.busy)return;
+      if(multi.stops.length<2){setMultiStatus('Añade al menos dos paradas.','error');return;}
+      if(multi.stops.length>20){setMultiStatus('Para la demostración, utiliza un máximo de 20 paradas.','error');return;}
+      multi.busy=true;document.getElementById('routeCalculate').disabled=true;document.getElementById('routeOptimize').disabled=true;
+      try{
+        invalidateMultiRoute();await resolveMultiStops();
+        const coord=multi.stops.map(s=>`${s.lon},${s.lat}`).join(';');
+        const returning=multiEls.routeReturn.checked;
+        if(optimize && multi.stops.length>2){
+          setMultiStatus('Optimizando orden de visita…');
+          const url=`https://router.project-osrm.org/trip/v1/driving/${coord}?roundtrip=${returning}&source=first&destination=${returning?'any':'last'}&overview=full&geometries=geojson`;
+          const response=await fetch(url);if(!response.ok)throw new Error(`No se pudo optimizar (HTTP ${response.status}).`);
+          const data=await response.json();if(data.code!=='Ok'||!data.trips?.[0])throw new Error('El motor de rutas no pudo optimizar estas paradas.');
+          const reordered=[...multi.stops];data.waypoints.forEach((w,i)=>{if(!Number.isInteger(w.waypoint_index))throw new Error('Orden optimizado no válido.');reordered[w.waypoint_index]=multi.stops[i];});
+          multi.stops=reordered;renderMultiStops();
+          // Recalcular la ruta normal para mostrar las paradas en el nuevo orden.
+        }
+        setMultiStatus('Calculando itinerario por carretera…');
+        const path=multi.stops.concat(returning?[multi.stops[0]]:[]);
+        const coords=path.map(s=>`${s.lon},${s.lat}`).join(';');
+        const response=await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`);
+        if(!response.ok)throw new Error(`No se ha podido calcular la ruta (HTTP ${response.status}).`);
+        const result=await response.json();const route=result.routes?.[0];
+        if(result.code!=='Ok'||!route)throw new Error('No hay un recorrido por carretera para todos los puntos seleccionados.');
+        renderMultiRoute(route);
+        multi.lastCalculated={stops:multi.stops.map(s=>({...s})),returning};
+        multiEls.routeGoogleMaps.disabled=false;
+        const segments=(route.legs||[]).map((leg,i)=>`Tramo ${i+1}: ${formatDistance(leg.distance/1000)} · ${formatDuration(leg.duration)}`).join('\n');
+        setMultiStatus(`${optimize?'Orden optimizado. ':''}${multi.stops.length} paradas · ${formatDistance(route.distance/1000)} · ${formatDuration(route.duration)} estimados\n${segments}`,'success');
+      }catch(error){console.error('Multirrutas:',error);invalidateMultiRoute();setMultiStatus(error.message||'No se ha podido generar el itinerario.','error');}
+      finally{multi.busy=false;document.getElementById('routeCalculate').disabled=false;document.getElementById('routeOptimize').disabled=false;}
+    }
+    function openMultiInGoogleMaps(){
+      if(!multi.lastCalculated)return;
+      const points=multi.lastCalculated.stops;
+      const coord=p=>`${p.lat},${p.lon}`;
+      const origin=coord(points[0]);const destination=coord(multi.lastCalculated.returning?points[0]:points[points.length-1]);
+      const waypoints=(multi.lastCalculated.returning?points.slice(1):points.slice(1,-1)).map(coord);
+      // Google Maps limita el número de paradas intermedias según dispositivo.
+      if(waypoints.length>9){setMultiStatus('Google Maps admite un número limitado de paradas intermedias. Para esta ruta larga, utiliza el trazado mostrado en el mapa o divídela en tramos.','error');return;}
+      const url=new URL('https://www.google.com/maps/dir/');url.searchParams.set('api','1');url.searchParams.set('origin',origin);url.searchParams.set('destination',destination);url.searchParams.set('travelmode','driving');if(waypoints.length)url.searchParams.set('waypoints',waypoints.join('|'));
+      window.open(url.toString(),'_blank','noopener');
+    }
+    document.getElementById('routeAddAddress').addEventListener('click',()=>addMultiStop());
+    document.getElementById('routeAddWorkshop').addEventListener('click',()=>{multiEls.routeWorkshopPicker.hidden=!multiEls.routeWorkshopPicker.hidden;if(!multiEls.routeWorkshopPicker.hidden){renderWorkshopResults();multiEls.routeWorkshopSearch.focus();}});
+    multiEls.routeWorkshopSearch.addEventListener('input',renderWorkshopResults);
+    multiEls.routePickMap.addEventListener('click',()=>{setMapPick(!multi.picking);if(multi.picking)setMultiStatus('Haz clic en cualquier punto del mapa para añadir una parada.');});
+    document.getElementById('routeCalculate').addEventListener('click',()=>calculateMultiRoute(false));
+    document.getElementById('routeOptimize').addEventListener('click',()=>calculateMultiRoute(true));
+    multiEls.routeReturn.addEventListener('change',()=>{invalidateMultiRoute();setMultiStatus('Calcula de nuevo para aplicar el regreso al origen.');});
+    multiEls.routeGoogleMaps.addEventListener('click',openMultiInGoogleMaps);
+    document.getElementById('routeReset').addEventListener('click',()=>{multi.stops=[];invalidateMultiRoute();setMapPick(false);renderMultiStops();setMultiStatus('Ruta eliminada. Puedes crear una nueva.');});
+    addMultiStop();addMultiStop();
 
     async function loadData() {
       try {
@@ -1048,5 +1217,3 @@
   </script>
 </body>
 </html>
-
-
