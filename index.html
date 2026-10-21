@@ -121,6 +121,15 @@
     .planner-mode {margin:.7rem 0;display:flex;align-items:center;gap:.4rem;font-size:var(--text-sm)}
     .planner-status {font-size:var(--text-sm);line-height:1.5;white-space:pre-line;color:var(--color-text-muted)}
     .planner-status.error {color:var(--color-error)}
+    .waze-routes {display:grid;gap:.5rem;margin-top:.8rem}
+    .waze-routes[hidden] {display:none}
+    .waze-title {font-size:var(--text-sm);font-weight:700;margin:0}
+    .waze-leg {display:flex;align-items:center;gap:.6rem;border:1px solid var(--color-border);background:var(--color-bg);border-radius:.6rem;padding:.55rem}
+    .waze-leg-info {min-width:0;flex:1}
+    .waze-leg-info strong {display:block;font-size:var(--text-sm);overflow-wrap:anywhere}
+    .waze-leg-info small {display:block;color:var(--color-text-muted);font-size:var(--text-xs)}
+    .waze-leg .chip {flex-shrink:0}
+    .waze-note {font-size:var(--text-xs);color:var(--color-text-muted);margin:0;line-height:1.4}
     .planner-status.success {color:var(--color-success)}
     .planner-stop.invalid input {border-color:var(--color-error)}
     .route-pick-active #map {cursor:crosshair!important}
@@ -190,9 +199,12 @@
           <button id="routeCalculate" class="chip active" type="button">Calcular multirruta</button>
           <button id="routeOptimize" class="chip" type="button">Optimizar orden</button>
           <button id="routeGoogleMaps" class="chip" type="button" disabled>Abrir en Google Maps</button>
+          <button id="routeWaze" class="chip" type="button" disabled>Abrir en Waze</button>
           <button id="routeReset" class="chip" type="button">Limpiar ruta</button>
         </div>
         <div id="multiRouteStatus" class="planner-status" role="status" aria-live="polite">Añade al menos dos paradas.</div>
+        <p class="planner-info" id="wazeHint" hidden>Waze abrirá la primera parada pendiente. Para ir a las siguientes, pulsa de nuevo el botón tras seleccionar la etapa deseada.</p>
+        <div id="wazeStagePicker" hidden style="margin-top:.5rem"><label class="detail-label" for="wazeStage">Destino de Waze</label><select id="wazeStage" class="analysis-select" style="margin-top:.3rem"></select></div>
         <p class="planner-info">Las direcciones se buscan mediante OpenStreetMap; los tiempos son aproximados y no incluyen tráfico. Las rutas no se guardan.</p>
       </section>
 
@@ -1039,12 +1051,12 @@
     const MULTI_ROUTE_COLORS = ['#e87917','#0f766e','#7c3aed','#dc2626','#2563eb','#65a30d','#db2777','#d97706','#0891b2','#9333ea'];
     function multiRouteColor(index){ return MULTI_ROUTE_COLORS[index % MULTI_ROUTE_COLORS.length]; }
     const multi = {stops:[], nextId:1, picking:false, lastCalculated:null, busy:false};
-    const multiEls = Object.fromEntries(['multiStops','multiRouteStatus','routeWorkshopPicker','routeWorkshopSearch','routeWorkshopResults','routePickMap','routeGoogleMaps','routeReturn'].map(id=>[id,document.getElementById(id)]));
+    const multiEls = Object.fromEntries(['multiStops','multiRouteStatus','routeWorkshopPicker','routeWorkshopSearch','routeWorkshopResults','routePickMap','routeGoogleMaps','routeWaze','routeReturn','wazeHint','wazeStagePicker','wazeStage'].map(id=>[id,document.getElementById(id)]));
     function addMultiStop(label='', lat=null, lon=null, workshop=false) {
       multi.stops.push({id:multi.nextId++,label,lat,lon,workshop});
       invalidateMultiRoute(); renderMultiStops();
     }
-    function invalidateMultiRoute(){ multi.lastCalculated=null; multiRouteLayer.clearLayers(); multiEls.routeGoogleMaps.disabled=true; }
+    function invalidateMultiRoute(){ multi.lastCalculated=null; multiRouteLayer.clearLayers(); multiEls.routeGoogleMaps.disabled=true; multiEls.routeWaze.disabled=true; multiEls.wazeHint.hidden=true; multiEls.wazeStagePicker.hidden=true; multiEls.wazeStage.replaceChildren(); }
     function setMultiStatus(message, type=''){multiEls.multiRouteStatus.textContent=message;multiEls.multiRouteStatus.className='planner-status '+type;}
     function renderMultiStops(){
       const target=multiEls.multiStops; target.replaceChildren();
@@ -1131,6 +1143,31 @@
       });
       const bounds=multiRouteLayer.getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[55,55],maxZoom:13});
     }
+    // Waze admite un único destino por enlace, así que se puede elegir la etapa.
+    function enableMultiWaze(points){
+      const select=multiEls.wazeStage;
+      select.replaceChildren();
+      points.slice(1).forEach((stop,index)=>{
+        const option=document.createElement('option');
+        option.value=String(index+1);
+        option.textContent=`${index+2}. ${stop.label}`;
+        select.appendChild(option);
+      });
+      multiEls.wazeStagePicker.hidden=false;
+      multiEls.wazeHint.hidden=false;
+      multiEls.routeWaze.disabled=false;
+    }
+    function openMultiInWaze(){
+      if(!multi.lastCalculated)return;
+      const points=multi.lastCalculated.stops.concat(multi.lastCalculated.returning?[multi.lastCalculated.stops[0]]:[]);
+      const stage=Number(multiEls.wazeStage.value);
+      const stop=points[stage];
+      if(!stop)return;
+      const url=new URL('https://waze.com/ul');
+      url.searchParams.set('ll',`${stop.lat},${stop.lon}`);
+      url.searchParams.set('navigate','yes');
+      window.open(url.toString(),'_blank','noopener');
+    }
     async function calculateMultiRoute(optimize=false){
       if(multi.busy)return;
       if(multi.stops.length<2){setMultiStatus('Añade al menos dos paradas.','error');return;}
@@ -1158,6 +1195,7 @@
         if(result.code!=='Ok'||!route)throw new Error('No hay un recorrido por carretera para todos los puntos seleccionados.');
         await renderMultiRoute(route, path);
         multi.lastCalculated={stops:multi.stops.map(s=>({...s})),returning};
+        enableMultiWaze(path);
         multiEls.routeGoogleMaps.disabled=false;
         const segments=(route.legs||[]).map((leg,i)=>`Tramo ${i+1}: ${formatDistance(leg.distance/1000)} · ${formatDuration(leg.duration)}`).join('\n');
         setMultiStatus(`${optimize?'Orden optimizado. ':''}${multi.stops.length} paradas · ${formatDistance(route.distance/1000)} · ${formatDuration(route.duration)} estimados\n${segments}`,'success');
@@ -1183,6 +1221,7 @@
     document.getElementById('routeOptimize').addEventListener('click',()=>calculateMultiRoute(true));
     multiEls.routeReturn.addEventListener('change',()=>{invalidateMultiRoute();setMultiStatus('Calcula de nuevo para aplicar el regreso al origen.');});
     multiEls.routeGoogleMaps.addEventListener('click',openMultiInGoogleMaps);
+    multiEls.routeWaze.addEventListener('click',openMultiInWaze);
     document.getElementById('routeReset').addEventListener('click',()=>{multi.stops=[];invalidateMultiRoute();setMapPick(false);renderMultiStops();setMultiStatus('Ruta eliminada. Puedes crear una nueva.');});
     addMultiStop();addMultiStop();
 
