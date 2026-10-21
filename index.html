@@ -1036,6 +1036,8 @@
 
 
     // Planificador de Operaciones. No cambia las fuentes CSV existentes.
+    const MULTI_ROUTE_COLORS = ['#e87917','#0f766e','#7c3aed','#dc2626','#2563eb','#65a30d','#db2777','#d97706','#0891b2','#9333ea'];
+    function multiRouteColor(index){ return MULTI_ROUTE_COLORS[index % MULTI_ROUTE_COLORS.length]; }
     const multi = {stops:[], nextId:1, picking:false, lastCalculated:null, busy:false};
     const multiEls = Object.fromEntries(['multiStops','multiRouteStatus','routeWorkshopPicker','routeWorkshopSearch','routeWorkshopResults','routePickMap','routeGoogleMaps','routeReturn'].map(id=>[id,document.getElementById(id)]));
     function addMultiStop(label='', lat=null, lon=null, workshop=false) {
@@ -1095,12 +1097,36 @@
         }
       }
     }
-    function renderMultiRoute(route){
+    async function fetchMultiSegmentGeometries(points){
+      const segmentUrls = [];
+      for(let i=0;i<points.length-1;i++){
+        const a=points[i], b=points[i+1];
+        segmentUrls.push(`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=full&geometries=geojson&steps=false`);
+      }
+      const responses = await Promise.all(segmentUrls.map(url=>fetch(url)));
+      const payloads = await Promise.all(responses.map(async response => {
+        if(!response.ok) return null;
+        try { return await response.json(); } catch (_) { return null; }
+      }));
+      return payloads.map((payload,index)=> payload && payload.code==='Ok' && payload.routes?.[0]
+        ? payload.routes[0]
+        : { geometry: { type: 'LineString', coordinates: [[points[index].lon, points[index].lat],[points[index+1].lon, points[index+1].lat]] }, distance: null, duration: null, fallback: true }
+      );
+    }
+    async function renderMultiRoute(route, points){
       multiRouteLayer.clearLayers();
-      L.geoJSON(route.geometry,{style:{color:'#e87917',weight:6,opacity:.94,lineCap:'round',lineJoin:'round'}}).addTo(multiRouteLayer);
-      const points=multi.stops.concat(multiEls.routeReturn.checked?[multi.stops[0]]:[]);
+      const segments = await fetchMultiSegmentGeometries(points);
+      segments.forEach((segment,index)=>{
+        const color = multiRouteColor(index);
+        const layer = L.geoJSON(segment.geometry,{style:{color,weight:6,opacity:.94,lineCap:'round',lineJoin:'round'}});
+        const distanceText = Number.isFinite(segment.distance) ? formatDistance(segment.distance/1000) : 'distancia no disponible';
+        const durationText = Number.isFinite(segment.duration) ? formatDuration(segment.duration) : 'duración no disponible';
+        layer.bindPopup(`<strong>Tramo ${index+1}</strong><br>${escapeHtml(points[index].label)} → ${escapeHtml(points[index+1].label)}<br>${distanceText} · ${durationText}`);
+        layer.addTo(multiRouteLayer);
+      });
       points.forEach((stop,index)=>{
-        const icon=L.divIcon({className:'',html:`<div class="route-stop-pin">${index+1}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
+        const borderColor = index===0 ? multiRouteColor(0) : multiRouteColor(index-1);
+        const icon=L.divIcon({className:'',html:`<div class="route-stop-pin" style="border:3px solid ${borderColor}">${index+1}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
         L.marker([stop.lat,stop.lon],{icon,zIndexOffset:1000}).bindPopup(`<strong>Parada ${index+1}</strong><br>${escapeHtml(stop.label)}`).addTo(multiRouteLayer);
       });
       const bounds=multiRouteLayer.getBounds();if(bounds.isValid())map.fitBounds(bounds,{padding:[55,55],maxZoom:13});
@@ -1130,7 +1156,7 @@
         if(!response.ok)throw new Error(`No se ha podido calcular la ruta (HTTP ${response.status}).`);
         const result=await response.json();const route=result.routes?.[0];
         if(result.code!=='Ok'||!route)throw new Error('No hay un recorrido por carretera para todos los puntos seleccionados.');
-        renderMultiRoute(route);
+        await renderMultiRoute(route, path);
         multi.lastCalculated={stops:multi.stops.map(s=>({...s})),returning};
         multiEls.routeGoogleMaps.disabled=false;
         const segments=(route.legs||[]).map((leg,i)=>`Tramo ${i+1}: ${formatDistance(leg.distance/1000)} · ${formatDuration(leg.duration)}`).join('\n');
