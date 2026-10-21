@@ -346,7 +346,7 @@
     const originLayer = L.layerGroup().addTo(map);
     const hailLayer = L.layerGroup().addTo(map);
     const routeLayer = L.layerGroup().addTo(map);
-    const multiRouteLayer = L.layerGroup().addTo(map);
+    const multiRouteLayer = L.featureGroup().addTo(map);
     const competitionLayer = L.layerGroup().addTo(map);
     let provinceLayer = null;
     let provinceGeoJSON = null;
